@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#0D0B09" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet" />
+    <title>La Guida</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body, #root { height: 100%; margin: 0; padding: 0; background: #0D0B09; }
+      body { font-family: 'DM Sans', sans-serif; color: #F0EBE1; overflow-x: hidden; }
+
+      .pg-input, .pg-select, .pg-textarea {
+        background: #1C1814; border: 1px solid #2A2520; color: #F0EBE1;
+        border-radius: 10px; padding: 11px 14px;
+        font-family: 'DM Sans', sans-serif; font-size: 15px; width: 100%;
+        outline: none; transition: border-color .2s; -webkit-appearance: none;
+      }
+      .pg-input:focus, .pg-textarea:focus { border-color: #C4622D; }
+      .pg-input::placeholder, .pg-textarea::placeholder { color: #3A3530; }
+      .pg-select { cursor: pointer; }
+      .pg-textarea { resize: none; min-height: 88px; }
+
+      .pg-slider {
+        -webkit-appearance: none; appearance: none;
+        width: 100%; height: 4px; border-radius: 2px; outline: none; cursor: pointer;
+      }
+      .pg-slider::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none;
+        width: 26px; height: 26px; border-radius: 50%;
+        background: #C4622D; cursor: pointer;
+        border: 2.5px solid #0D0B09;
+        box-shadow: 0 0 0 3px rgba(196,98,45,.35);
+        transition: box-shadow .18s;
+      }
+      .pg-slider:active::-webkit-slider-thumb { box-shadow: 0 0 0 8px rgba(196,98,45,.2); }
+
+      .pg-fade-in { animation: pgFade .28s ease forwards; }
+      @keyframes pgFade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+      /* Leaflet dark overrides */
+      .leaflet-popup-content-wrapper {
+        background: #1C1814 !important; color: #F0EBE1 !important;
+        border: 1px solid #2A2520 !important; border-radius: 10px !important;
+        box-shadow: 0 8px 32px rgba(0,0,0,.6) !important;
+      }
+      .leaflet-popup-tip { background: #1C1814 !important; }
+      .leaflet-popup-close-button { color: #4A4440 !important; }
+      .leaflet-control-zoom a { background: #1C1814 !important; color: #F0EBE1 !important; border-color: #2A2520 !important; }
+      .leaflet-control-attribution { background: rgba(13,11,9,.7) !important; color: #3A3530 !important; }
+      .leaflet-control-attribution a { color: #4A4440 !important; }
+
+      /* ── Print styles ─────────────────────────────── */
+      .print-only { display: none; }
+
+      @media print {
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        body { background: #fff !important; color: #111 !important; font-family: 'DM Sans', Georgia, serif; }
+        .no-print { display: none !important; }
+        .print-only { display: block !important; }
+        #root > div > *:not(.print-only) { display: none !important; }
+
+        .print-page { padding: 32px 40px; }
+        .print-header { margin-bottom: 28px; border-bottom: 2px solid #C4622D; padding-bottom: 16px; }
+        .print-title { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; font-weight: 700; color: #111; margin: 0 0 4px; }
+        .print-sub { font-size: 12px; color: #888; letter-spacing: 2px; text-transform: uppercase; }
+        .print-meta { font-size: 11px; color: #aaa; margin-top: 4px; }
+
+        .print-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .print-table th { text-align: left; padding: 8px 10px; border-bottom: 1px solid #ddd; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: #888; font-weight: 600; }
+        .print-table td { padding: 10px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+        .print-table tr:last-child td { border-bottom: none; }
+        .print-table tr:nth-child(even) td { background: #fafafa; }
+
+        .print-name { font-family: 'Playfair Display', Georgia, serif; font-size: 14px; font-weight: 600; }
+        .print-loc { font-size: 11px; color: #888; margin-top: 2px; }
+        .print-score { font-family: 'Playfair Display', Georgia, serif; font-size: 20px; font-weight: 700; }
+        .print-tier { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; font-weight: 600; }
+        .print-sub-score { font-size: 11px; color: #555; }
+        .print-notes { font-style: italic; font-size: 11px; color: #777; margin-top: 4px; max-width: 200px; }
+        .print-footer { margin-top: 32px; font-size: 10px; color: #bbb; text-align: center; border-top: 1px solid #eee; padding-top: 12px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
