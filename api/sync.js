@@ -21,8 +21,11 @@ export default async function handler(req, res) {
   // Try to load @vercel/kv — fails gracefully if KV isn't set up
   let kv;
   try {
-    const mod = await import('@vercel/kv');
-    kv = mod.kv;
+    const { Redis } = await import('@upstash/redis');
+    kv = new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN,
+  });
   } catch {
     return res.status(503).json({ error: 'Sync storage not configured. See README to enable Vercel KV.' });
   }
