@@ -29,6 +29,100 @@ const SYNC_ID_KEY   = "la-guida-syncid";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function handlePrint() {
+  const win = window.open('', '_blank', 'width=1000,height=750');
+  if (!win) return;
+
+  const rows = entries.map((e, idx) => {
+    const tier  = getTier(e.weightedScore);
+    const cells = CRITERIA.map(c => `
+      <td style="padding:9px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;
+                 color:${scoreColor(e.scores[c.key] || 5)};font-weight:600;text-align:center;">
+        ${e.scores[c.key] || '—'}
+      </td>`).join('');
+
+    return `
+      <tr>
+        <td style="padding:9px 10px;border-bottom:1px solid #f0f0f0;color:#bbb;font-weight:600;text-align:center;">${idx + 1}</td>
+        <td style="padding:9px 10px;border-bottom:1px solid #f0f0f0;">
+          <div style="font-family:Georgia,serif;font-size:15px;font-weight:700;">${e.name}</div>
+          ${e.location ? `<div style="font-size:11px;color:#888;margin-top:2px;">📍 ${e.location}</div>` : ''}
+          ${e.dish     ? `<div style="font-size:11px;color:#aaa;">${e.style} · ${e.dish} · ${e.priceRange}</div>` : ''}
+          ${e.notes    ? `<div style="font-size:11px;color:#bbb;font-style:italic;margin-top:3px;">"${e.notes}"</div>` : ''}
+        </td>
+        <td style="padding:9px 10px;border-bottom:1px solid #f0f0f0;text-align:center;">
+          <span style="font-family:Georgia,serif;font-size:22px;font-weight:700;color:${scoreColor(e.weightedScore)};">${e.weightedScore.toFixed(1)}</span>
+          <div style="font-size:9px;color:#bbb;">/10</div>
+        </td>
+        <td style="padding:9px 10px;border-bottom:1px solid #f0f0f0;font-size:10px;font-weight:600;
+                   color:${tier.color};letter-spacing:1px;text-transform:uppercase;white-space:nowrap;">
+          ${tier.icon} ${tier.label}
+        </td>
+        ${cells}
+        <td style="padding:9px 10px;border-bottom:1px solid #f0f0f0;font-size:12px;text-align:center;
+                   color:${e.wouldReturn === 'Yes' ? '#5B8A5B' : e.wouldReturn === 'No' ? '#8B4040' : '#888'};">
+          ${e.wouldReturn}
+        </td>
+      </tr>`;
+  }).join('');
+
+  const headers = CRITERIA.map(c => `
+    <th style="text-align:center;padding:8px 10px;border-bottom:2px solid #ddd;
+               font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#888;
+               font-weight:600;white-space:nowrap;">
+      ${c.label}<br><span style="font-weight:400;color:#bbb;">${c.weight}</span>
+    </th>`).join('');
+
+  const date = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  win.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>La Guida — Pizzerie</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'DM Sans', sans-serif; padding: 40px; color: #111; background: #fff; margin: 0; }
+    @media print { @page { margin: 15mm; size: landscape; } body { padding: 0; } }
+  </style>
+</head>
+<body>
+  <div style="border-bottom:2px solid #C4622D;padding-bottom:14px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:flex-end;">
+    <div>
+      <div style="font-size:10px;letter-spacing:3px;color:#C4622D;text-transform:uppercase;margin-bottom:6px;font-weight:600;">Personal Restaurant Guide</div>
+      <div style="font-family:'Playfair Display',Georgia,serif;font-size:26px;font-weight:700;margin:0 0 4px;">La Guida — Pizzerie</div>
+      <div style="font-size:12px;color:#aaa;">Exported ${date} · ${entries.length} restaurant${entries.length !== 1 ? 's' : ''}</div>
+    </div>
+    <div style="text-align:right;font-size:11px;color:#ccc;line-height:1.6;">
+      ${CRITERIA.map(c => `${c.label} ${c.weight}`).join('<br>')}
+    </div>
+  </div>
+
+  <table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead>
+      <tr>
+        <th style="text-align:center;padding:8px 10px;border-bottom:2px solid #ddd;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#888;font-weight:600;">#</th>
+        <th style="text-align:left;padding:8px 10px;border-bottom:2px solid #ddd;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#888;font-weight:600;">Restaurant</th>
+        <th style="text-align:center;padding:8px 10px;border-bottom:2px solid #ddd;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#888;font-weight:600;">Score</th>
+        <th style="text-align:left;padding:8px 10px;border-bottom:2px solid #ddd;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#888;font-weight:600;">Tier</th>
+        ${headers}
+        <th style="text-align:center;padding:8px 10px;border-bottom:2px solid #ddd;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#888;font-weight:600;">Return?</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+
+  <div style="margin-top:32px;font-size:10px;color:#ccc;text-align:center;border-top:1px solid #eee;padding-top:12px;">
+    La Guida · Personal Pizza Guide
+  </div>
+  <script>window.onload = () => { setTimeout(() => window.print(), 600); }</script>
+</body>
+</html>`);
+  win.document.close();
+}
+
+
 function calcScore(scores) {
   return Object.entries(WEIGHTS).reduce((acc, [k, w]) => acc + (Number(scores[k]) || 5) * w, 0);
 }
