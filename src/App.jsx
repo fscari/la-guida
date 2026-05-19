@@ -21,7 +21,7 @@ const CRITERIA = [
   { key: "drinks",   label: "Drinks",              sub: "wine · cocktails · selection",  weight: "8%"  },
 ];
 
-const PIZZA_STYLES = ["Neapolitan", "New York", "Roman", "Detroit", "Sicilian", "Other"];
+const PIZZA_STYLES = ["Neapolitan", "Roman", "Milanese", "Panzerotto", "Other"];
 const PRICE_RANGES = ["€", "€€", "€€€", "€€€€"];
 const STORAGE_KEY  = "la-guida-v3";
 const SYNC_ID_KEY  = "la-guida-syncid-v3";
