@@ -1,11 +1,15 @@
-// api/sync.js — No npm packages. Uses Upstash REST API directly via fetch.
-// Env vars injected automatically by Vercel after connecting Upstash:
-//   UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN
+// api/sync.js
+// Uses Upstash REST API directly — no npm packages required.
+// Env vars are injected automatically by Vercel after you connect Upstash
+// via Vercel Dashboard → Storage → Connect to Project.
+//
+// To verify setup, visit: https://your-app.vercel.app/api/sync?debug=1
+// You should see: { "hasUrl": true, "hasToken": true }
 
-const TTL     = 60 * 60 * 24 * 730; // 2 years in seconds
+const TTL     = 60 * 60 * 24 * 730; // 2 years
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function headers() {
+function authHeaders() {
   return {
     Authorization: `Bearer ${process.env.UPSTASH_REDIS_REST_TOKEN}`,
     'Content-Type': 'application/json',
@@ -15,7 +19,7 @@ function headers() {
 async function kvGet(key) {
   const res = await fetch(
     `${process.env.UPSTASH_REDIS_REST_URL}/get/${encodeURIComponent(key)}`,
-    { headers: headers() }
+    { headers: authHeaders() }
   );
   const { result } = await res.json();
   return result ? JSON.parse(result) : null;
@@ -23,8 +27,8 @@ async function kvGet(key) {
 
 async function kvSet(key, value, ttl) {
   await fetch(`${process.env.UPSTASH_REDIS_REST_URL}/pipeline`, {
-    method:  'POST',
-    headers: headers(),
+    method: 'POST',
+    headers: authHeaders(),
     body: JSON.stringify([
       ['SET',    key, JSON.stringify(value)],
       ['EXPIRE', key, ttl],
@@ -38,7 +42,7 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // Debug: visit /api/sync?debug=1 in your browser to verify env vars
+  // Debug endpoint — visit /api/sync?debug=1 in browser
   if (req.query.debug) {
     return res.status(200).json({
       hasUrl:   !!process.env.UPSTASH_REDIS_REST_URL,
@@ -53,7 +57,7 @@ export default async function handler(req, res) {
 
   if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
     return res.status(503).json({
-      error: 'Upstash not configured. Connect it in Vercel → Storage and redeploy.',
+      error: 'Upstash not configured. Connect it via Vercel → Storage and redeploy.',
     });
   }
 
@@ -68,12 +72,11 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       let body = req.body;
       if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
-
       const { entries } = body ?? {};
       if (!Array.isArray(entries)) {
-        return res.status(400).json({ error: `entries must be an array, got ${typeof entries}` });
+        return res.status(400).json({ error: `entries must be an array, got: ${typeof entries}` });
       }
-
+      // Strip photos before storing — photos stay device-local only
       const stripped = entries.map(({ photo, ...rest }) => rest);
       await kvSet(key, stripped, TTL);
       return res.status(200).json({ ok: true, saved: stripped.length });
