@@ -1,10 +1,9 @@
 // api/sync.js
 // Uses Upstash REST API directly — no npm packages required.
-// Env vars are injected automatically by Vercel after you connect Upstash
-// via Vercel Dashboard → Storage → Connect to Project.
+// Env vars injected automatically by Vercel after connecting Upstash.
 //
-// To verify setup, visit: https://your-app.vercel.app/api/sync?debug=1
-// You should see: { "hasUrl": true, "hasToken": true }
+// Verify setup: https://your-app.vercel.app/api/sync?debug=1
+// Should return: { "hasUrl": true, "hasToken": true }
 
 const TTL     = 60 * 60 * 24 * 730; // 2 years
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -17,8 +16,9 @@ function authHeaders() {
 }
 
 async function kvGet(key) {
+  // No encodeURIComponent — colons get encoded to %3A which breaks key lookup
   const res = await fetch(
-    `${process.env.UPSTASH_REDIS_REST_URL}/get/${encodeURIComponent(key)}`,
+    `${process.env.UPSTASH_REDIS_REST_URL}/get/${key}`,
     { headers: authHeaders() }
   );
   const { result } = await res.json();
@@ -42,7 +42,6 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // Debug endpoint — visit /api/sync?debug=1 in browser
   if (req.query.debug) {
     return res.status(200).json({
       hasUrl:   !!process.env.UPSTASH_REDIS_REST_URL,
@@ -56,12 +55,11 @@ export default async function handler(req, res) {
   }
 
   if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-    return res.status(503).json({
-      error: 'Upstash not configured. Connect it via Vercel → Storage and redeploy.',
-    });
+    return res.status(503).json({ error: 'Upstash not configured. Connect it via Vercel → Storage and redeploy.' });
   }
 
-  const key = `guide:${id}`;
+  // Use underscore instead of colon — colons get URL-encoded and cause key mismatches
+  const key = `guide_${id}`;
 
   try {
     if (req.method === 'GET') {
@@ -76,7 +74,6 @@ export default async function handler(req, res) {
       if (!Array.isArray(entries)) {
         return res.status(400).json({ error: `entries must be an array, got: ${typeof entries}` });
       }
-      // Strip photos before storing — photos stay device-local only
       const stripped = entries.map(({ photo, ...rest }) => rest);
       await kvSet(key, stripped, TTL);
       return res.status(200).json({ ok: true, saved: stripped.length });
