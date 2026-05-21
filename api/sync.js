@@ -1,87 +1,57 @@
-// api/sync.js
-// Uses Upstash REST API directly — no npm packages required.
-// Env vars injected automatically by Vercel after connecting Upstash.
-//
-// Verify setup: https://your-app.vercel.app/api/sync?debug=1
-// Should return: { "hasUrl": true, "hasToken": true }
-
-const TTL     = 60 * 60 * 24 * 730; // 2 years
+const BASE  = () => process.env.UPSTASH_REDIS_REST_URL;
+const TOKEN = () => process.env.UPSTASH_REDIS_REST_TOKEN;
+const TTL   = 60 * 60 * 24 * 730;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function authHeaders() {
-  return {
-    Authorization: `Bearer ${process.env.UPSTASH_REDIS_REST_TOKEN}`,
-    'Content-Type': 'application/json',
-  };
-}
-
-async function kvGet(key) {
-  // No encodeURIComponent — colons get encoded to %3A which breaks key lookup
-  const res = await fetch(
-    `${process.env.UPSTASH_REDIS_REST_URL}/get/${key}`,
-    { headers: authHeaders() }
-  );
-  const { result } = await res.json();
-  return result ? JSON.parse(result) : null;
-}
-
-async function kvSet(key, value, ttl) {
-  await fetch(`${process.env.UPSTASH_REDIS_REST_URL}/pipeline`, {
+async function redis(...args) {
+  const res = await fetch(BASE(), {
     method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify([
-      ['SET',    key, JSON.stringify(value)],
-      ['EXPIRE', key, ttl],
-    ]),
+    headers: { Authorization: `Bearer ${TOKEN()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
   });
+  return res.json();
 }
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin',  '*');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   if (req.query.debug) {
     return res.status(200).json({
+      version: '4',
       hasUrl:   !!process.env.UPSTASH_REDIS_REST_URL,
       hasToken: !!process.env.UPSTASH_REDIS_REST_TOKEN,
     });
   }
 
   const { id } = req.query;
-  if (!id || !UUID_RE.test(id)) {
-    return res.status(400).json({ error: 'Invalid sync ID — must be a UUID' });
-  }
+  if (!id || !UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid ID' });
+  if (!BASE() || !TOKEN())     return res.status(503).json({ error: 'Upstash not configured' });
 
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-    return res.status(503).json({ error: 'Upstash not configured. Connect it via Vercel → Storage and redeploy.' });
-  }
-
-  // Use underscore instead of colon — colons get URL-encoded and cause key mismatches
   const key = `guide_${id}`;
 
   try {
     if (req.method === 'GET') {
-      const entries = await kvGet(key);
-      return res.status(200).json({ entries: entries ?? [] });
+      const { result } = await redis('GET', key);
+      const entries = result ? JSON.parse(result) : [];
+      return res.status(200).json({ entries });
     }
 
     if (req.method === 'POST') {
       let body = req.body;
       if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
       const { entries } = body ?? {};
-      if (!Array.isArray(entries)) {
-        return res.status(400).json({ error: `entries must be an array, got: ${typeof entries}` });
-      }
+      if (!Array.isArray(entries)) return res.status(400).json({ error: 'entries must be array' });
       const stripped = entries.map(({ photo, ...rest }) => rest);
-      await kvSet(key, stripped, TTL);
+      await redis('SET', key, JSON.stringify(stripped), 'EX', String(TTL));
       return res.status(200).json({ ok: true, saved: stripped.length });
     }
 
     res.status(405).end();
   } catch (err) {
     console.error('[sync]', err);
-    return res.status(500).json({ error: err.message ?? 'Unknown error' });
+    res.status(500).json({ error: err.message });
   }
 }
