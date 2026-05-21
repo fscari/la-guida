@@ -18,13 +18,24 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  if (req.query.debug) {
-    return res.status(200).json({
-      version: '4',
-      hasUrl:   !!process.env.UPSTASH_REDIS_REST_URL,
-      hasToken: !!process.env.UPSTASH_REDIS_REST_TOKEN,
-    });
+if (req.query.debug) {
+  const testKey = `test_${Date.now()}`;
+  let setRes = null, getRes = null;
+  try {
+    setRes = await redis('SET', testKey, 'hello', 'EX', '60');
+    getRes = await redis('GET', testKey);
+  } catch (e) {
+    return res.status(200).json({ error: e.message });
   }
+  return res.status(200).json({
+    version: '4',
+    hasUrl:   !!process.env.UPSTASH_REDIS_REST_URL,
+    hasToken: !!process.env.UPSTASH_REDIS_REST_TOKEN,
+    urlStart: (process.env.UPSTASH_REDIS_REST_URL || '').slice(0, 30),
+    set: setRes,
+    get: getRes,
+  });
+}
 
   const { id } = req.query;
   if (!id || !UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid ID' });
