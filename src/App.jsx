@@ -373,7 +373,11 @@ function BottomNav({ view, onList, onWish, onMap, onAdd, onSettings }) {
         <svg width="22" height="22" viewBox="0 0 24 24" fill={view==="wishlist"?"#C4622D":"none"} stroke={ic("wishlist")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
       </NavBtn>
       <div style={{ flex:1, display:"flex", justifyContent:"center", alignItems:"center" }}>
-        <button onClick={onAdd} style={{ background:"#C4622D", border:"none", width:52, height:52, borderRadius:"50%", color:"#F0EBE1", fontSize:26, cursor:"pointer", boxShadow:"0 4px 20px rgba(196,98,45,.6)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:300, marginTop:-16 }}>+</button>
+        <button onClick={onAdd} style={{ background:"#C4622D", border:"none", width:52, height:52, borderRadius:"50%", color:"#F0EBE1", cursor:"pointer", boxShadow:"0 4px 20px rgba(196,98,45,.6)", display:"flex", alignItems:"center", justifyContent:"center", marginTop:-16 }}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F0EBE1" strokeWidth="2.5" strokeLinecap="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </button>
       </div>
       <NavBtn v="map" onClick={onMap} label="Mappa">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={ic("map")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>
@@ -854,8 +858,10 @@ export default function App() {
     const avg = ce.length ? (ce.reduce((s, e) => s + e.weightedScore, 0) / ce.length).toFixed(1) : null;
     return (
       <div style={{ ...app, display:"flex", flexDirection:"column", height:"100dvh" }} className="pg-fade-in">
-        <div style={{ flex:1, overflowY:"auto", WebkitOverflowScrolling:"touch" }}>
-        <div style={{ padding:"32px 24px 16px", ...divBdr }}>
+
+        {/* ── Fixed header ── */}
+        <div style={{ flexShrink:0 }}>
+        <div style={{ padding:"28px 24px 14px", ...divBdr }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
             <div>
               <div style={{ fontSize:10, letterSpacing:4, color:"#C4622D", textTransform:"uppercase", marginBottom:6, fontWeight:600 }}>Personal Guide</div>
@@ -873,11 +879,11 @@ export default function App() {
               </div>
             </div>
           </div>
-          <div style={{ marginTop:16 }}>
+          <div style={{ marginTop:14 }}>
             <CuisineSwitcher active={activeCuisine} onChange={c => { setActiveCuisine(c); setSearchQuery(""); }} />
           </div>
           {ce.length > 0 && (
-            <div style={{ display:"flex", gap:8, marginTop:14 }}>
+            <div style={{ display:"flex", gap:8, marginTop:12 }}>
               {[{ label:"Logged", value:ce.length }, { label:"Top rated", value:ce.filter(e => e.weightedScore >= 8).length }, { label:"On map", value:ce.filter(e => e.lat).length }].map(s => (
                 <div key={s.label} style={{ flex:1, background:"var(--surface)", borderRadius:10, padding:"10px 12px", border:"1px solid var(--border)" }}>
                   <div style={{ fontFamily:"'Playfair Display', serif", fontSize:18, fontWeight:600, color:"var(--text)" }}>{s.value}</div>
@@ -887,7 +893,7 @@ export default function App() {
             </div>
           )}
           {ce.length > 0 && (
-            <div style={{ display:"flex", gap:8, marginTop:12 }}>
+            <div style={{ display:"flex", gap:8, marginTop:10 }}>
               <button onClick={() => handlePrint(visibleEntries, activeCuisine)} style={{ flex:1, background:"var(--surface)", border:"1px solid var(--border)", color:"var(--muted)", borderRadius:9, padding:"9px", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                 Export PDF
@@ -901,7 +907,7 @@ export default function App() {
         </div>
 
         {ce.length > 0 && (
-          <div style={{ padding:"12px 24px", ...divBdr, display:"flex", gap:8, alignItems:"center" }}>
+          <div style={{ padding:"10px 24px", ...divBdr, display:"flex", gap:8, alignItems:"center" }}>
             <div style={{ flex:1, position:"relative" }}>
               <svg style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", pointerEvents:"none" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--dim)" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               <input className="pg-input" placeholder="Search name, location, dish…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} style={{ paddingLeft:34, fontSize:13 }} />
@@ -915,7 +921,10 @@ export default function App() {
             </button>
           </div>
         )}
+        </div>{/* end fixed header */}
 
+        {/* ── Scrollable entries ── */}
+        <div style={{ flex:1, overflowY:"auto", WebkitOverflowScrolling:"touch" }}>
         {ce.length === 0 ? (
           <div style={{ textAlign:"center", padding:"80px 24px 40px" }}>
             <div style={{ fontSize:56, marginBottom:20 }}>{cuisineConfig.icon}</div>
@@ -956,8 +965,8 @@ export default function App() {
             </div>
           );
         })}
+        </div>{/* end scrollable entries */}
 
-        </div>{/* end scroll wrapper */}
         <BottomNav view="list" onList={() => setView("list")} onWish={() => setView("wishlist")} onMap={() => setView("map")} onAdd={openAdd} onSettings={() => setShowSettings(true)} />
         {showShare    && <ShareModal syncId={syncId} onClose={() => setShowShare(false)} />}
         {showFilter   && <FilterSheet cuisineStyles={cuisineConfig.styles} filterTiers={filterTiers} filterStyles={filterStyles} filterPrices={filterPrices} onToggleTier={v => toggleArr(filterTiers, setFilterTiers, v)} onToggleStyle={v => toggleArr(filterStyles, setFilterStyles, v)} onTogglePrice={v => toggleArr(filterPrices, setFilterPrices, v)} onClear={() => { setFilterTiers([]); setFilterStyles([]); setFilterPrices([]); }} onClose={() => setShowFilter(false)} />}
@@ -974,8 +983,9 @@ export default function App() {
     const wishItems = wishlist.filter(w => migrateCuisine(w.cuisine) === activeCuisine);
     return (
       <div style={{ ...app, display:"flex", flexDirection:"column", height:"100dvh" }} className="pg-fade-in">
-        <div style={{ flex:1, overflowY:"auto", WebkitOverflowScrolling:"touch" }}>
-        <div style={{ padding:"32px 24px 16px", ...divBdr }}>
+
+        {/* ── Fixed header ── */}
+        <div style={{ flexShrink:0, padding:"28px 24px 14px", ...divBdr }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
             <div>
               <div style={{ fontSize:10, letterSpacing:4, color:"#C4622D", textTransform:"uppercase", marginBottom:6, fontWeight:600 }}>Da Provare</div>
@@ -994,9 +1004,11 @@ export default function App() {
               </div>
             </div>
           </div>
-          <div style={{ marginTop:16 }}><CuisineSwitcher active={activeCuisine} onChange={setActiveCuisine} /></div>
+          <div style={{ marginTop:14 }}><CuisineSwitcher active={activeCuisine} onChange={setActiveCuisine} /></div>
         </div>
 
+        {/* ── Scrollable wishlist items ── */}
+        <div style={{ flex:1, overflowY:"auto", WebkitOverflowScrolling:"touch" }}>
         {wishItems.length === 0 ? (
           <div style={{ textAlign:"center", padding:"80px 24px 40px" }}>
             <div style={{ fontSize:56, marginBottom:20 }}>♡</div>
@@ -1022,7 +1034,8 @@ export default function App() {
             </div>
           </div>
         ))}
-        </div>{/* end scroll wrapper */}
+        </div>{/* end scrollable items */}
+
         <BottomNav view="wishlist" onList={() => setView("list")} onWish={() => setView("wishlist")} onMap={() => setView("map")} onAdd={openAdd} onSettings={() => setShowSettings(true)} />
         {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} onClose={() => setShowSettings(false)} />}
       </div>
