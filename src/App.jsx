@@ -578,7 +578,13 @@ export default function App() {
   const [sortBy, setSortBy]         = useState("score_desc");
   const [mapCuisineFilter, setMapCuisineFilter] = useState(CUISINE_KEYS);
   const [viewOnly, setViewOnly] = useState(false);
-  const fileRef = useRef();
+  const [pollId, setPollId]     = useState(null); // cloud ID to poll from (may differ from syncId for view-only)
+  const fileRef       = useRef();
+  // Refs so the polling callback always sees current values without stale closures
+  const entriesRef    = useRef([]);
+  const wishlistRef   = useRef([]);
+  const syncIdRef     = useRef(null);
+  const viewOnlyRef   = useRef(false);
 
   // ── Bootstrap ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -598,20 +604,21 @@ export default function App() {
       if (urlViewId) {
         // View-only mode: load from cloud, never push back
         setViewOnly(true);
+        viewOnlyRef.current = true;
         setSyncStatus("syncing");
         window.history.replaceState({}, "", window.location.pathname);
         const cloud = await pullFromCloud(urlViewId);
         if (cloud?.entries?.length > 0) {
           const me = cloud.entries.map(e => ({ ...e, cuisine: migrateCuisine(e.cuisine) }));
           const mw = (cloud.wishlist || []).map(w => ({ ...w, cuisine: migrateCuisine(w.cuisine) }));
-          setEntries(me); setWishlist(mw); setSyncStatus("ok");
-        } else {
-          setSyncStatus("ok");
+          setEntries(me); setWishlist(mw);
         }
-        // Keep any existing local syncId for the user's own guide
+        setSyncStatus("ok");
+        // Keep own syncId unchanged; poll the viewed guide for live updates
         const existingId = localSyncId || generateUUID();
         if (!localSyncId) localStorage.setItem(SYNC_ID_KEY, existingId);
         setSyncId(existingId);
+        setPollId(urlViewId); // poll the guide we're viewing
         return;
       }
 
@@ -624,6 +631,7 @@ export default function App() {
         if (!localSyncId) localStorage.setItem(SYNC_ID_KEY, activeSyncId);
       }
       setSyncId(activeSyncId);
+      setPollId(activeSyncId); // always poll own/shared sync ID
 
       if (urlSyncId) {
         setSyncStatus("syncing");
@@ -652,6 +660,73 @@ export default function App() {
   useEffect(() => { document.documentElement.setAttribute("data-theme", theme); localStorage.setItem(THEME_KEY, theme); }, [theme]);
   useEffect(() => { localStorage.setItem(CUISINE_KEY, activeCuisine); setFilterStyles([]); setFilterTiers([]); setFilterPrices([]); setSortBy("score_desc"); }, [activeCuisine]);
 
+  // Keep refs current
+  useEffect(() => { entriesRef.current  = entries;  }, [entries]);
+  useEffect(() => { wishlistRef.current = wishlist; }, [wishlist]);
+  useEffect(() => { syncIdRef.current   = syncId;   }, [syncId]);
+  useEffect(() => { viewOnlyRef.current = viewOnly; }, [viewOnly]);
+
+  // ── Live sync polling ──────────────────────────────────────────────────────
+  async function syncFromCloud() {
+    const id = pollId;
+    if (!id) return;
+    setSyncStatus("syncing");
+    const cloud = await pullFromCloud(id);
+    if (!cloud?.entries) { setSyncStatus("ok"); return; }
+
+    // Merge entries: union by ID, last updatedAt wins for conflicts
+    const local      = entriesRef.current;
+    const localById  = Object.fromEntries(local.map(e => [e.id, e]));
+    const cloudById  = Object.fromEntries(cloud.entries.map(e => [e.id, { ...e, cuisine: migrateCuisine(e.cuisine) }]));
+    const allIds     = new Set([...Object.keys(localById), ...Object.keys(cloudById)]);
+    let changed      = false;
+    const merged     = [];
+
+    for (const id of allIds) {
+      const l = localById[id];
+      const c = cloudById[id];
+      if (!c) { merged.push(l); }                          // local-only (not yet pushed)
+      else if (!l) { merged.push(c); changed = true; }    // new from cloud
+      else {
+        // Both: pick the most recently edited version; keep local photo (never synced)
+        const winner = (c.updatedAt || 0) > (l.updatedAt || 0)
+          ? { ...c, photo: l.photo ?? c.photo }
+          : l;
+        if (winner !== l) changed = true;
+        merged.push(winner);
+      }
+    }
+
+    const sorted = merged.sort((a, b) => b.weightedScore - a.weightedScore);
+
+    if (changed) {
+      setEntries(sorted);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
+      // Collaborators re-push the merged result so the owner sees everything
+      if (!viewOnlyRef.current && syncIdRef.current) {
+        pushToCloud(syncIdRef.current, sorted, wishlistRef.current);
+      }
+    }
+
+    // Merge wishlist: add any items from cloud not already local
+    const wl       = wishlistRef.current;
+    const wlIds    = new Set(wl.map(w => w.id));
+    const newWish  = (cloud.wishlist || []).filter(w => !wlIds.has(w.id)).map(w => ({ ...w, cuisine: migrateCuisine(w.cuisine) }));
+    if (newWish.length) {
+      const mergedWish = [...wl, ...newWish];
+      setWishlist(mergedWish);
+      localStorage.setItem(WISHLIST_KEY, JSON.stringify(mergedWish));
+    }
+
+    setSyncStatus("ok");
+  }
+
+  useEffect(() => {
+    if (!pollId) return;
+    const id = setInterval(syncFromCloud, 30_000);
+    return () => clearInterval(id);
+  }, [pollId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Persistence ────────────────────────────────────────────────────────────
   function persist(newEntries, activeSyncId, newWishlist) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newEntries));
@@ -675,7 +750,7 @@ export default function App() {
     if (form.location?.trim() && !lat) { const c = await geocodeLocation(form.location); if (c) { lat = c.lat; lng = c.lng; } }
     const cuisine = form.cuisine || activeCuisine;
     const score   = parseFloat(calcScore(form.scores, cuisine, form.style).toFixed(1));
-    const entry   = { ...form, id: editingId || String(Date.now()), weightedScore: score, lat, lng, cuisine, addedBy: form.addedBy || userInitials };
+    const entry   = { ...form, id: editingId || String(Date.now()), weightedScore: score, lat, lng, cuisine, addedBy: form.addedBy || userInitials, updatedAt: Date.now() };
     const next    = [...(editingId ? entries.map(e => e.id === editingId ? entry : e) : [...entries, entry])].sort((a, b) => b.weightedScore - a.weightedScore);
     setEntries(next); persist(next, syncId); setSaving(false);
     setView(editingId ? "detail" : "list"); setEditingId(null); setForm(freshForm(activeCuisine, userInitials));
@@ -911,8 +986,11 @@ export default function App() {
               <div style={{ fontFamily:"'Playfair Display', serif", fontSize:32, fontWeight:700, color:"#D4A853", lineHeight:1 }}>{wishItems.length}</div>
               <div style={{ fontSize:10, color:"var(--dim)", letterSpacing:2, textTransform:"uppercase" }}>saved</div>
               <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:5, marginTop:6 }}>
-                <div style={{ width:7, height:7, borderRadius:"50%", background:syncDot, transition:"background .4s" }} />
-                <span style={{ fontSize:10, color:"var(--dimmer)", letterSpacing:1 }}>{{ idle:"local",syncing:"syncing…",ok:"synced",error:"offline" }[syncStatus]}</span>
+                {viewOnly
+                  ? <span style={{ fontSize:10, background:"rgba(212,168,83,0.15)", border:"1px solid rgba(212,168,83,0.35)", color:"#D4A853", borderRadius:6, padding:"2px 8px", fontWeight:600, letterSpacing:1, textTransform:"uppercase" }}>👁 View only</span>
+                  : <><div style={{ width:7, height:7, borderRadius:"50%", background:syncDot, transition:"background .4s" }} />
+                    <span style={{ fontSize:10, color:"var(--dimmer)", letterSpacing:1 }}>{{ idle:"local",syncing:"syncing…",ok:"synced",error:"offline" }[syncStatus]}</span></>
+                }
               </div>
             </div>
           </div>
