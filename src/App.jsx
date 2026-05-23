@@ -382,23 +382,62 @@ function BottomNav({ view, onList, onWish, onMap, onAdd }) {
 
 // ─── Share Modal ──────────────────────────────────────────────────────────────
 function ShareModal({ syncId, onClose }) {
-  const [copied, setCopied] = useState(false);
-  const url = `${window.location.origin}${window.location.pathname}?sync=${syncId}`;
-  async function copy() { try { await navigator.clipboard.writeText(url); } catch {} setCopied(true); setTimeout(() => setCopied(false), 2000); }
+  const [copied, setCopied]       = useState(null); // "collab" | "view" | null
+  const base     = `${window.location.origin}${window.location.pathname}`;
+  const collabUrl = `${base}?sync=${syncId}`;
+  const viewUrl   = `${base}?view=${syncId}`;
+
+  async function copy(type) {
+    const url = type === "collab" ? collabUrl : viewUrl;
+    try { await navigator.clipboard.writeText(url); } catch {}
+    setCopied(type);
+    setTimeout(() => setCopied(null), 2000);
+  }
+
+  const qr = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(collabUrl)}&bgcolor=1C1814&color=F0EBE1&margin=8`;
+
+  const LinkRow = ({ type, label, desc, url, accent }) => (
+    <div style={{ background:"var(--bg)", border:`1px solid ${accent}22`, borderRadius:12, padding:"14px 16px", marginBottom:12 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+        <div style={{ width:8, height:8, borderRadius:"50%", background:accent, flexShrink:0 }} />
+        <span style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:accent }}>{label}</span>
+      </div>
+      <div style={{ fontSize:12, color:"var(--dim)", marginBottom:10, lineHeight:1.6 }}>{desc}</div>
+      <div style={{ fontFamily:"monospace", fontSize:10, color:"var(--muted)", wordBreak:"break-all", background:"var(--surface)", borderRadius:7, padding:"8px 10px", marginBottom:10 }}>{url}</div>
+      <button onClick={() => copy(type)} style={{ width:"100%", background:copied===type?"#5B8A5B":accent, border:"none", color:accent==="#D4A853"?"#0D0B09":"#F0EBE1", borderRadius:9, padding:"11px", fontSize:13, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600, transition:"background .2s" }}>
+        {copied === type ? "✓ Copied!" : "Copy link"}
+      </button>
+    </div>
+  );
+
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:2000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background:"var(--surface)", borderRadius:"18px 18px 0 0", padding:"24px 24px 36px", width:"100%", maxWidth:430, border:"1px solid var(--border)", borderBottom:"none" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"var(--surface)", borderRadius:"18px 18px 0 0", padding:"24px 24px 36px", width:"100%", maxWidth:430, border:"1px solid var(--border)", borderBottom:"none", maxHeight:"90vh", overflowY:"auto" }}>
         <div style={{ width:36, height:4, background:"var(--border)", borderRadius:2, margin:"0 auto 20px" }} />
-        <div style={{ fontFamily:"'Playfair Display', serif", fontSize:20, fontWeight:600, marginBottom:8, color:"var(--text)" }}>Share your guide</div>
-        <div style={{ fontSize:13, color:"var(--muted)", lineHeight:1.7, marginBottom:16 }}>Anyone with this link sees your entries and stays in sync.</div>
-        <div style={{ display:"flex", gap:14, alignItems:"flex-start", marginBottom:16 }}>
+        <div style={{ display:"flex", alignItems:"flex-start", gap:14, marginBottom:20 }}>
           <div style={{ flex:1 }}>
-            <div style={{ background:"var(--bg)", border:"1px solid var(--border)", borderRadius:10, padding:"12px 14px", fontSize:11, color:"var(--muted)", wordBreak:"break-all", lineHeight:1.6, fontFamily:"monospace", marginBottom:8 }}>{url}</div>
-            <div style={{ fontSize:11, color:"var(--dim)" }}>⚠️ Photos stored locally only.</div>
+            <div style={{ fontFamily:"'Playfair Display', serif", fontSize:20, fontWeight:600, marginBottom:6, color:"var(--text)" }}>Share your guide</div>
+            <div style={{ fontSize:12, color:"var(--dim)", lineHeight:1.6 }}>Two links — choose who can edit.</div>
           </div>
-          <img src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(url)}&bgcolor=1C1814&color=F0EBE1&margin=8`} alt="QR" width={80} height={80} style={{ borderRadius:8, flexShrink:0 }} />
+          <img src={qr} alt="QR" width={72} height={72} style={{ borderRadius:8, flexShrink:0 }} />
         </div>
-        <button onClick={copy} style={{ width:"100%", background:copied?"#5B8A5B":"#C4622D", border:"none", color:"#F0EBE1", borderRadius:12, padding:"14px", fontSize:15, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600, transition:"background .2s", marginBottom:10 }}>{copied ? "✓ Copied!" : "Copy link"}</button>
+
+        <LinkRow
+          type="collab"
+          label="Collaborator"
+          desc="Can browse AND add entries — their additions sync back to your guide."
+          url={collabUrl}
+          accent="#C4622D"
+        />
+        <LinkRow
+          type="view"
+          label="View only"
+          desc="Can browse your guide and add private local notes — nothing syncs back to you."
+          url={viewUrl}
+          accent="#D4A853"
+        />
+
+        <div style={{ fontSize:11, color:"var(--dimmer)", marginBottom:16, lineHeight:1.6 }}>⚠️ Photos are stored locally on each device and are never synced.</div>
         <button onClick={onClose} style={{ width:"100%", background:"transparent", border:"1px solid var(--border)", color:"var(--muted)", borderRadius:12, padding:"13px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif" }}>Done</button>
       </div>
     </div>
@@ -538,6 +577,7 @@ export default function App() {
   const [filterPrices, setFilterPrices] = useState([]);
   const [sortBy, setSortBy]         = useState("score_desc");
   const [mapCuisineFilter, setMapCuisineFilter] = useState(CUISINE_KEYS);
+  const [viewOnly, setViewOnly] = useState(false);
   const fileRef = useRef();
 
   // ── Bootstrap ──────────────────────────────────────────────────────────────
@@ -552,7 +592,29 @@ export default function App() {
     if (savedCuisine && CUISINE_CONFIGS[savedCuisine]) setActiveCuisine(savedCuisine);
 
     async function bootstrap() {
+      const urlViewId = params.get("view");
       let activeSyncId;
+
+      if (urlViewId) {
+        // View-only mode: load from cloud, never push back
+        setViewOnly(true);
+        setSyncStatus("syncing");
+        window.history.replaceState({}, "", window.location.pathname);
+        const cloud = await pullFromCloud(urlViewId);
+        if (cloud?.entries?.length > 0) {
+          const me = cloud.entries.map(e => ({ ...e, cuisine: migrateCuisine(e.cuisine) }));
+          const mw = (cloud.wishlist || []).map(w => ({ ...w, cuisine: migrateCuisine(w.cuisine) }));
+          setEntries(me); setWishlist(mw); setSyncStatus("ok");
+        } else {
+          setSyncStatus("ok");
+        }
+        // Keep any existing local syncId for the user's own guide
+        const existingId = localSyncId || generateUUID();
+        if (!localSyncId) localStorage.setItem(SYNC_ID_KEY, existingId);
+        setSyncId(existingId);
+        return;
+      }
+
       if (urlSyncId) {
         activeSyncId = urlSyncId;
         localStorage.setItem(SYNC_ID_KEY, urlSyncId);
@@ -594,7 +656,7 @@ export default function App() {
   function persist(newEntries, activeSyncId, newWishlist) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newEntries));
     const wl = newWishlist !== undefined ? newWishlist : wishlist;
-    if (activeSyncId) {
+    if (activeSyncId && !viewOnly) {
       setSyncStatus("syncing");
       pushToCloud(activeSyncId, newEntries, wl).then(ok => setSyncStatus(ok ? "ok" : "error"));
     }
@@ -603,7 +665,7 @@ export default function App() {
   function persistWish(newWishlist) {
     setWishlist(newWishlist);
     localStorage.setItem(WISHLIST_KEY, JSON.stringify(newWishlist));
-    if (syncId) { setSyncStatus("syncing"); pushToCloud(syncId, entries, newWishlist).then(ok => setSyncStatus(ok ? "ok" : "error")); }
+    if (syncId && !viewOnly) { setSyncStatus("syncing"); pushToCloud(syncId, entries, newWishlist).then(ok => setSyncStatus(ok ? "ok" : "error")); }
   }
 
   // ── Entry CRUD ─────────────────────────────────────────────────────────────
@@ -729,8 +791,11 @@ export default function App() {
             <div style={{ textAlign:"right" }}>
               {avg && <><div style={{ fontFamily:"'Playfair Display', serif", fontSize:40, fontWeight:700, color:scoreColor(+avg), lineHeight:1 }}>{avg}</div><div style={{ fontSize:10, color:"var(--dim)", letterSpacing:2, textTransform:"uppercase" }}>avg</div></>}
               <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:5, marginTop:6 }}>
-                <div style={{ width:7, height:7, borderRadius:"50%", background:syncDot, transition:"background .4s" }} />
-                <span style={{ fontSize:10, color:"var(--dimmer)", letterSpacing:1 }}>{{ idle:"local",syncing:"syncing…",ok:"synced",error:"offline" }[syncStatus]}</span>
+                {viewOnly
+                  ? <span style={{ fontSize:10, background:"rgba(212,168,83,0.15)", border:"1px solid rgba(212,168,83,0.35)", color:"#D4A853", borderRadius:6, padding:"2px 8px", fontWeight:600, letterSpacing:1, textTransform:"uppercase" }}>👁 View only</span>
+                  : <><div style={{ width:7, height:7, borderRadius:"50%", background:syncDot, transition:"background .4s" }} />
+                    <span style={{ fontSize:10, color:"var(--dimmer)", letterSpacing:1 }}>{{ idle:"local",syncing:"syncing…",ok:"synced",error:"offline" }[syncStatus]}</span></>
+                }
                 <button onClick={() => setShowSettings(true)} style={{ background:"none", border:"none", color:"var(--dim)", fontSize:14, cursor:"pointer", padding:"0 0 0 4px" }}>⚙</button>
               </div>
             </div>
