@@ -355,26 +355,31 @@ function ShapeIcon({ shape, size = 12, color = "currentColor" }) {
 }
 
 // ─── Bottom Nav ───────────────────────────────────────────────────────────────
-function BottomNav({ view, onList, onWish, onMap, onAdd }) {
+function BottomNav({ view, onList, onWish, onMap, onAdd, onSettings }) {
   if (["add","detail","wishlist-add"].includes(view)) return null;
   const ic = v => view === v ? "#C4622D" : "var(--dim)";
   const NavBtn = ({ v, onClick, children, label }) => (
-    <button onClick={onClick} style={{ background:"none", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", padding:"4px 12px" }}>
+    <button onClick={onClick} style={{ background:"none", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", padding:"4px 0", flex:1 }}>
       {children}
       <span style={{ fontSize:9, letterSpacing:1.5, textTransform:"uppercase", color:ic(v), fontWeight:600, marginTop:3 }}>{label}</span>
     </button>
   );
   return (
-    <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, background:"rgba(13,11,9,0.96)", borderTop:"1px solid var(--border2)", display:"flex", alignItems:"center", justifyContent:"space-around", padding:"10px 16px 20px", zIndex:1000, backdropFilter:"blur(12px)" }}>
+    <div style={{ background:"var(--bg)", borderTop:"1px solid var(--border2)", display:"flex", alignItems:"center", justifyContent:"space-around", padding:"10px 8px env(safe-area-inset-bottom, 16px)", flexShrink:0, zIndex:100 }}>
       <NavBtn v="list" onClick={onList} label="Lista">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={ic("list")} strokeWidth="2" strokeLinecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
       </NavBtn>
       <NavBtn v="wishlist" onClick={onWish} label="Wishlist">
         <svg width="22" height="22" viewBox="0 0 24 24" fill={view==="wishlist"?"#C4622D":"none"} stroke={ic("wishlist")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
       </NavBtn>
-      <button onClick={onAdd} style={{ background:"#C4622D", border:"none", width:52, height:52, borderRadius:"50%", color:"#F0EBE1", fontSize:26, cursor:"pointer", boxShadow:"0 4px 20px rgba(196,98,45,.6)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:300, marginTop:-10 }}>+</button>
+      <div style={{ flex:1, display:"flex", justifyContent:"center", alignItems:"center" }}>
+        <button onClick={onAdd} style={{ background:"#C4622D", border:"none", width:52, height:52, borderRadius:"50%", color:"#F0EBE1", fontSize:26, cursor:"pointer", boxShadow:"0 4px 20px rgba(196,98,45,.6)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:300, marginTop:-16 }}>+</button>
+      </div>
       <NavBtn v="map" onClick={onMap} label="Mappa">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={ic("map")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>
+      </NavBtn>
+      <NavBtn v="settings" onClick={onSettings} label="Settings">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={ic("settings")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </NavBtn>
     </div>
   );
@@ -394,19 +399,25 @@ function ShareModal({ syncId, onClose }) {
     setTimeout(() => setCopied(null), 2000);
   }
 
-  const qr = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(collabUrl)}&bgcolor=1C1814&color=F0EBE1&margin=8`;
+  const qrCollab = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(collabUrl)}&bgcolor=1C1814&color=F0EBE1&margin=8`;
+  const qrView   = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(viewUrl)}&bgcolor=1C1814&color=D4A853&margin=8`;
 
-  const LinkRow = ({ type, label, desc, url, accent }) => (
-    <div style={{ background:"var(--bg)", border:`1px solid ${accent}22`, borderRadius:12, padding:"14px 16px", marginBottom:12 }}>
-      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
-        <div style={{ width:8, height:8, borderRadius:"50%", background:accent, flexShrink:0 }} />
-        <span style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:accent }}>{label}</span>
+  const LinkRow = ({ type, label, desc, url, accent, qr }) => (
+    <div style={{ background:"var(--bg)", border:`1px solid ${accent}33`, borderRadius:12, padding:"14px 16px", marginBottom:12 }}>
+      <div style={{ display:"flex", alignItems:"flex-start", gap:12 }}>
+        <div style={{ flex:1 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+            <div style={{ width:8, height:8, borderRadius:"50%", background:accent, flexShrink:0 }} />
+            <span style={{ fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:accent }}>{label}</span>
+          </div>
+          <div style={{ fontSize:12, color:"var(--dim)", marginBottom:10, lineHeight:1.6 }}>{desc}</div>
+          <div style={{ fontFamily:"monospace", fontSize:10, color:"var(--muted)", wordBreak:"break-all", background:"var(--surface)", borderRadius:7, padding:"8px 10px", marginBottom:10 }}>{url}</div>
+          <button onClick={() => copy(type)} style={{ width:"100%", background:copied===type?"#5B8A5B":accent, border:"none", color:accent==="#D4A853"?"#0D0B09":"#F0EBE1", borderRadius:9, padding:"11px", fontSize:13, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600, transition:"background .2s" }}>
+            {copied === type ? "✓ Copied!" : "Copy link"}
+          </button>
+        </div>
+        <img src={qr} alt="QR" width={72} height={72} style={{ borderRadius:8, flexShrink:0, marginTop:2 }} />
       </div>
-      <div style={{ fontSize:12, color:"var(--dim)", marginBottom:10, lineHeight:1.6 }}>{desc}</div>
-      <div style={{ fontFamily:"monospace", fontSize:10, color:"var(--muted)", wordBreak:"break-all", background:"var(--surface)", borderRadius:7, padding:"8px 10px", marginBottom:10 }}>{url}</div>
-      <button onClick={() => copy(type)} style={{ width:"100%", background:copied===type?"#5B8A5B":accent, border:"none", color:accent==="#D4A853"?"#0D0B09":"#F0EBE1", borderRadius:9, padding:"11px", fontSize:13, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600, transition:"background .2s" }}>
-        {copied === type ? "✓ Copied!" : "Copy link"}
-      </button>
     </div>
   );
 
@@ -419,23 +430,10 @@ function ShareModal({ syncId, onClose }) {
             <div style={{ fontFamily:"'Playfair Display', serif", fontSize:20, fontWeight:600, marginBottom:6, color:"var(--text)" }}>Share your guide</div>
             <div style={{ fontSize:12, color:"var(--dim)", lineHeight:1.6 }}>Two links — choose who can edit.</div>
           </div>
-          <img src={qr} alt="QR" width={72} height={72} style={{ borderRadius:8, flexShrink:0 }} />
         </div>
 
-        <LinkRow
-          type="collab"
-          label="Collaborator"
-          desc="Can browse AND add entries — their additions sync back to your guide."
-          url={collabUrl}
-          accent="#C4622D"
-        />
-        <LinkRow
-          type="view"
-          label="View only"
-          desc="Can browse your guide and add private local notes — nothing syncs back to you."
-          url={viewUrl}
-          accent="#D4A853"
-        />
+        <LinkRow type="collab" label="Collaborator" desc="Can browse AND add entries — their additions sync back to your guide." url={collabUrl} accent="#C4622D" qr={qrCollab} />
+        <LinkRow type="view"   label="View only"    desc="Can browse your guide and add private local notes — nothing syncs back to you." url={viewUrl} accent="#D4A853" qr={qrView} />
 
         <div style={{ fontSize:11, color:"var(--dimmer)", marginBottom:16, lineHeight:1.6 }}>⚠️ Photos are stored locally on each device and are never synced.</div>
         <button onClick={onClose} style={{ width:"100%", background:"transparent", border:"1px solid var(--border)", color:"var(--muted)", borderRadius:12, padding:"13px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif" }}>Done</button>
@@ -844,7 +842,7 @@ export default function App() {
     });
   }, [entries, activeCuisine, searchQuery, filterTiers, filterStyles, filterPrices, sortBy, activeCriteria]);
 
-  const app    = { fontFamily:"'DM Sans', sans-serif", background:"var(--bg)", minHeight:"100vh", color:"var(--text)", maxWidth:430, margin:"0 auto", position:"relative" };
+  const app    = { fontFamily:"'DM Sans', sans-serif", background:"var(--bg)", color:"var(--text)", maxWidth:430, margin:"0 auto", position:"relative" };
   const secLbl = { fontSize:10, letterSpacing:3, color:"#C4622D", textTransform:"uppercase", marginBottom:14, fontWeight:600 };
   const divBdr = { borderBottom:"1px solid var(--border2)" };
 
@@ -855,7 +853,8 @@ export default function App() {
     const ce  = entries.filter(e => migrateCuisine(e.cuisine) === activeCuisine);
     const avg = ce.length ? (ce.reduce((s, e) => s + e.weightedScore, 0) / ce.length).toFixed(1) : null;
     return (
-      <div style={{ ...app, paddingBottom:90 }} className="pg-fade-in">
+      <div style={{ ...app, display:"flex", flexDirection:"column", height:"100dvh" }} className="pg-fade-in">
+        <div style={{ flex:1, overflowY:"auto", WebkitOverflowScrolling:"touch" }}>
         <div style={{ padding:"32px 24px 16px", ...divBdr }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
             <div>
@@ -871,7 +870,6 @@ export default function App() {
                   : <><div style={{ width:7, height:7, borderRadius:"50%", background:syncDot, transition:"background .4s" }} />
                     <span style={{ fontSize:10, color:"var(--dimmer)", letterSpacing:1 }}>{{ idle:"local",syncing:"syncing…",ok:"synced",error:"offline" }[syncStatus]}</span></>
                 }
-                <button onClick={() => setShowSettings(true)} style={{ background:"none", border:"none", color:"var(--dim)", fontSize:14, cursor:"pointer", padding:"0 0 0 4px" }}>⚙</button>
               </div>
             </div>
           </div>
@@ -959,7 +957,8 @@ export default function App() {
           );
         })}
 
-        <BottomNav view="list" onList={() => setView("list")} onWish={() => setView("wishlist")} onMap={() => setView("map")} onAdd={openAdd} />
+        </div>{/* end scroll wrapper */}
+        <BottomNav view="list" onList={() => setView("list")} onWish={() => setView("wishlist")} onMap={() => setView("map")} onAdd={openAdd} onSettings={() => setShowSettings(true)} />
         {showShare    && <ShareModal syncId={syncId} onClose={() => setShowShare(false)} />}
         {showFilter   && <FilterSheet cuisineStyles={cuisineConfig.styles} filterTiers={filterTiers} filterStyles={filterStyles} filterPrices={filterPrices} onToggleTier={v => toggleArr(filterTiers, setFilterTiers, v)} onToggleStyle={v => toggleArr(filterStyles, setFilterStyles, v)} onTogglePrice={v => toggleArr(filterPrices, setFilterPrices, v)} onClear={() => { setFilterTiers([]); setFilterStyles([]); setFilterPrices([]); }} onClose={() => setShowFilter(false)} />}
         {showSort     && <SortSheet sortBy={sortBy} onSort={setSortBy} criteria={activeCriteria} onClose={() => setShowSort(false)} />}
@@ -974,7 +973,8 @@ export default function App() {
   if (view === "wishlist") {
     const wishItems = wishlist.filter(w => migrateCuisine(w.cuisine) === activeCuisine);
     return (
-      <div style={{ ...app, paddingBottom:90 }} className="pg-fade-in">
+      <div style={{ ...app, display:"flex", flexDirection:"column", height:"100dvh" }} className="pg-fade-in">
+        <div style={{ flex:1, overflowY:"auto", WebkitOverflowScrolling:"touch" }}>
         <div style={{ padding:"32px 24px 16px", ...divBdr }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
             <div>
@@ -1022,7 +1022,9 @@ export default function App() {
             </div>
           </div>
         ))}
-        <BottomNav view="wishlist" onList={() => setView("list")} onWish={() => setView("wishlist")} onMap={() => setView("map")} onAdd={openAdd} />
+        </div>{/* end scroll wrapper */}
+        <BottomNav view="wishlist" onList={() => setView("list")} onWish={() => setView("wishlist")} onMap={() => setView("map")} onAdd={openAdd} onSettings={() => setShowSettings(true)} />
+        {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} onClose={() => setShowSettings(false)} />}
       </div>
     );
   }
@@ -1037,7 +1039,7 @@ export default function App() {
     const center      = allLocated.length > 0 ? [allLocated[0].lat, allLocated[0].lng] : [41.9028, 12.4964];
     const tileUrl     = theme === "light" ? "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" : "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
     return (
-      <div style={{ ...app, height:"100vh", display:"flex", flexDirection:"column" }} className="pg-fade-in">
+      <div style={{ ...app, height:"100dvh", display:"flex", flexDirection:"column" }} className="pg-fade-in">
         <div style={{ padding:"20px 24px 12px", ...divBdr, background:"var(--bg)", zIndex:10, flexShrink:0 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:10 }}>
             <div style={{ fontFamily:"'Playfair Display', serif", fontSize:24, fontWeight:700, color:"var(--text)" }}>La Mappa</div>
@@ -1109,7 +1111,7 @@ export default function App() {
           )}
         </div>
 
-        <div style={{ background:"var(--bg)", borderTop:"1px solid var(--border2)", padding:"10px 24px 80px", flexShrink:0, zIndex:10 }}>
+        <div style={{ background:"var(--bg)", borderTop:"1px solid var(--border2)", padding:"10px 24px 12px", flexShrink:0, zIndex:10 }}>
           <div style={{ display:"flex", gap:14, flexWrap:"wrap" }}>
             {[{color:"#D4A853",label:"9+"},{color:"#C4622D",label:"8+"},{color:"#5B8A5B",label:"7+"},{color:"#7A7470",label:"<7"}].map(l => (
               <div key={l.label} style={{ display:"flex", alignItems:"center", gap:5 }}>
@@ -1133,7 +1135,8 @@ export default function App() {
             </div>
           </div>
         </div>
-        <BottomNav view="map" onList={() => setView("list")} onWish={() => setView("wishlist")} onMap={() => setView("map")} onAdd={openAdd} />
+        <BottomNav view="map" onList={() => setView("list")} onWish={() => setView("wishlist")} onMap={() => setView("map")} onAdd={openAdd} onSettings={() => setShowSettings(true)} />
+        {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} onClose={() => setShowSettings(false)} />}
       </div>
     );
   }
