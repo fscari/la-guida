@@ -56,11 +56,12 @@ export default async function handler(req, res) {
       const stored = await kvGet(key);
       // Support both old format (bare array) and new format ({ entries, wishlist })
       if (Array.isArray(stored)) {
-        return res.status(200).json({ entries: stored, wishlist: [] });
+        return res.status(200).json({ entries: stored, wishlist: [], deletedIds: [] });
       }
       return res.status(200).json({
-        entries:  Array.isArray(stored?.entries)  ? stored.entries  : [],
-        wishlist: Array.isArray(stored?.wishlist) ? stored.wishlist : [],
+        entries:    Array.isArray(stored?.entries)    ? stored.entries    : [],
+        wishlist:   Array.isArray(stored?.wishlist)   ? stored.wishlist   : [],
+        deletedIds: Array.isArray(stored?.deletedIds) ? stored.deletedIds : [],
       });
     }
 
@@ -69,16 +70,16 @@ export default async function handler(req, res) {
       let body = req.body;
       if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
 
-      const { entries, wishlist } = body ?? {};
+      const { entries, wishlist, deletedIds } = body ?? {};
       if (!Array.isArray(entries)) {
         return res.status(400).json({ error: `entries must be array, got ${typeof entries}` });
       }
 
-      // Strip photos from both arrays before storing
       const strippedEntries  = entries.map(({ photo, ...rest }) => rest);
       const strippedWishlist = Array.isArray(wishlist) ? wishlist.map(({ photo, ...rest }) => rest) : [];
+      const storedDeletedIds = Array.isArray(deletedIds) ? deletedIds : [];
 
-      const payload   = { entries: strippedEntries, wishlist: strippedWishlist };
+      const payload   = { entries: strippedEntries, wishlist: strippedWishlist, deletedIds: storedDeletedIds };
       const setResult = await kvSet(key, payload);
 
       const verify = await kvGet(key);
