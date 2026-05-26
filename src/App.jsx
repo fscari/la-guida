@@ -424,9 +424,9 @@ function BottomNav({ view, onList, onWish, onMap, onAdd, onSettings }) {
 }
 
 // ─── Share Modal ──────────────────────────────────────────────────────────────
-function ShareModal({ syncId, onClose }) {
+function ShareModal({ syncId, onClose, onExportPdf }) {
   const [copied, setCopied]       = useState(null); // "collab" | "view" | null
-  const base     = `${window.location.origin}${window.location.pathname}`;
+  const base      = `${window.location.origin}${window.location.pathname}`;
   const collabUrl = `${base}?sync=${syncId}`;
   const viewUrl   = `${base}?view=${syncId}`;
 
@@ -463,12 +463,20 @@ function ShareModal({ syncId, onClose }) {
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:2000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ background:"var(--surface)", borderRadius:"18px 18px 0 0", padding:"24px 24px 36px", width:"100%", maxWidth:430, border:"1px solid var(--border)", borderBottom:"none", maxHeight:"90vh", overflowY:"auto" }}>
         <div style={{ width:36, height:4, background:"var(--border)", borderRadius:2, margin:"0 auto 20px" }} />
-        <div style={{ display:"flex", alignItems:"flex-start", gap:14, marginBottom:20 }}>
+        <div style={{ display:"flex", alignItems:"flex-start", gap:14, marginBottom:16 }}>
           <div style={{ flex:1 }}>
             <div style={{ fontFamily:"'Playfair Display', serif", fontSize:20, fontWeight:600, marginBottom:6, color:"var(--text)" }}>Share your guide</div>
             <div style={{ fontSize:12, color:"var(--dim)", lineHeight:1.6 }}>Two links — choose who can edit.</div>
           </div>
         </div>
+
+        {/* Export PDF */}
+        <button onClick={() => { onExportPdf(); onClose(); }} style={{ width:"100%", background:"var(--bg)", border:"1px solid var(--border)", color:"var(--muted)", borderRadius:12, padding:"13px 16px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          <span style={{ fontWeight:500 }}>Export PDF</span>
+          <span style={{ marginLeft:"auto", fontSize:11, color:"var(--dimmer)" }}>Opens print dialog</span>
+        </button>
+        <div style={{ height:1, background:"var(--border)", marginBottom:16 }} />
 
         <LinkRow type="collab" label="Collaborator" desc="Can browse AND add entries — their additions sync back to your guide." url={collabUrl} accent="#C4622D" qr={qrCollab} />
         <LinkRow type="view"   label="View only"    desc="Can browse your guide and add private local notes — nothing syncs back to you." url={viewUrl} accent="#D4A853" qr={qrView} />
@@ -986,55 +994,49 @@ export default function App() {
             <CuisineSwitcher active={activeCuisine} onChange={c => { setActiveCuisine(c); setSearchQuery(""); }} />
           </div>
           {ce.length > 0 && (
-            <div style={{ display:"flex", gap:8, marginTop:12, alignItems:"center" }}>
-              {[{ label:"Logged", value:ce.length }, { label:"Top rated", value:ce.filter(e => e.weightedScore >= 8).length }].map(s => (
-                <div key={s.label} style={{ background:"var(--surface)", borderRadius:8, padding:"6px 12px", border:"1px solid var(--border)", display:"flex", alignItems:"baseline", gap:6 }}>
-                  <div style={{ fontFamily:"'Playfair Display', serif", fontSize:15, fontWeight:700, color:"var(--text)" }}>{s.value}</div>
-                  <div style={{ fontSize:9, color:"var(--dim)", letterSpacing:1.2, textTransform:"uppercase" }}>{s.label}</div>
+            <div style={{ padding:"8px 0 2px", display:"flex", gap:6, alignItems:"center" }}>
+              {/* Compact stat pills */}
+              {!showSearch && [{ label:"Logged", value:ce.length }, { label:"Top rated", value:ce.filter(e => e.weightedScore >= 8).length }].map(s => (
+                <div key={s.label} style={{ background:"var(--surface)", borderRadius:7, padding:"5px 9px", border:"1px solid var(--border)", display:"flex", alignItems:"baseline", gap:4, whiteSpace:"nowrap" }}>
+                  <span style={{ fontFamily:"'Playfair Display', serif", fontSize:14, fontWeight:700, color:"var(--text)" }}>{s.value}</span>
+                  <span style={{ fontSize:8, color:"var(--dim)", letterSpacing:1.2, textTransform:"uppercase" }}>{s.label}</span>
                 </div>
               ))}
-            </div>
-          )}
-          {ce.length > 0 && (
-            <div style={{ display:"flex", gap:8, marginTop:10 }}>
-              <button onClick={() => handlePrint(visibleEntries, activeCuisine)} style={{ flex:1, background:"var(--surface)", border:"1px solid var(--border)", color:"var(--muted)", borderRadius:9, padding:"9px", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-                Export PDF
-              </button>
-              <button onClick={() => setShowShare(true)} style={{ flex:1, background:"var(--surface)", border:"1px solid var(--border)", color:"var(--muted)", borderRadius:9, padding:"9px", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-                Share & Sync
-              </button>
+
+              {/* Search: expands inline */}
+              {showSearch ? (
+                <>
+                  <div style={{ flex:1, position:"relative" }}>
+                    <svg style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", pointerEvents:"none" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--dim)" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input className="pg-input" autoFocus placeholder="Search…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} style={{ paddingLeft:30, fontSize:13, padding:"8px 10px 8px 30px" }} />
+                  </div>
+                  <button onClick={() => { setShowSearch(false); setSearchQuery(""); }} style={{ background:"var(--surface)", border:"1px solid var(--border)", color:"var(--dim)", borderRadius:8, padding:"8px 10px", cursor:"pointer", fontSize:13, flexShrink:0 }}>✕</button>
+                </>
+              ) : (
+                <>
+                  <div style={{ flex:1 }} />
+                  {/* Search */}
+                  <button onClick={() => setShowSearch(true)} style={{ background:searchQuery?"rgba(196,98,45,0.12)":"var(--surface)", border:`1px solid ${searchQuery?"#C4622D":"var(--border)"}`, color:searchQuery?"#C4622D":"var(--muted)", borderRadius:8, padding:"7px 9px", cursor:"pointer", display:"flex", alignItems:"center" }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  </button>
+                  {/* Filter */}
+                  <button onClick={() => setShowFilter(true)} style={{ background:hasFilters?"rgba(196,98,45,0.12)":"var(--surface)", border:`1px solid ${hasFilters?"#C4622D":"var(--border)"}`, color:hasFilters?"#C4622D":"var(--muted)", borderRadius:8, padding:"7px 9px", cursor:"pointer", display:"flex", alignItems:"center", gap:3 }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
+                    {hasFilters && <span style={{ fontSize:10, fontWeight:700 }}>{filterTiers.length+filterStyles.length+filterPrices.length}</span>}
+                  </button>
+                  {/* Sort */}
+                  <button onClick={() => setShowSort(true)} style={{ background:sortBy!=="score_desc"?"rgba(196,98,45,0.12)":"var(--surface)", border:`1px solid ${sortBy!=="score_desc"?"#C4622D":"var(--border)"}`, color:sortBy!=="score_desc"?"#C4622D":"var(--muted)", borderRadius:8, padding:"7px 9px", cursor:"pointer", display:"flex", alignItems:"center" }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4"/><path d="M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
+                  </button>
+                  {/* Share (opens sheet with PDF export + sync) */}
+                  <button onClick={() => setShowShare(true)} style={{ background:"var(--surface)", border:"1px solid var(--border)", color:"var(--muted)", borderRadius:8, padding:"7px 9px", cursor:"pointer", display:"flex", alignItems:"center" }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
-
-        {ce.length > 0 && (
-          <div style={{ padding:"8px 24px 10px", ...divBdr, display:"flex", gap:8, alignItems:"center" }}>
-            {showSearch ? (
-              <>
-                <div style={{ flex:1, position:"relative" }}>
-                  <svg style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", pointerEvents:"none" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--dim)" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                  <input className="pg-input" autoFocus placeholder="Search…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} style={{ paddingLeft:32, fontSize:13 }} />
-                </div>
-                <button onClick={() => { setShowSearch(false); setSearchQuery(""); }} style={{ background:"var(--surface)", border:"1px solid var(--border)", color:"var(--dim)", borderRadius:10, padding:"10px 12px", cursor:"pointer", fontSize:14, fontFamily:"'DM Sans', sans-serif", flexShrink:0 }}>✕</button>
-              </>
-            ) : (
-              <>
-                <button onClick={() => setShowSearch(true)} style={{ background:searchQuery?"rgba(196,98,45,0.12)":"var(--surface)", border:`1px solid ${searchQuery?"#C4622D":"var(--border)"}`, color:searchQuery?"#C4622D":"var(--muted)", borderRadius:10, padding:"10px 12px", cursor:"pointer", display:"flex", alignItems:"center", flexShrink:0 }}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                </button>
-                <button onClick={() => setShowFilter(true)} style={{ flex:1, background:hasFilters?"rgba(196,98,45,0.12)":"var(--surface)", border:`1px solid ${hasFilters?"#C4622D":"var(--border)"}`, color:hasFilters?"#C4622D":"var(--muted)", borderRadius:10, padding:"10px 12px", cursor:"pointer", fontSize:12, fontFamily:"'DM Sans', sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
-                  {hasFilters ? `Filters · ${filterTiers.length+filterStyles.length+filterPrices.length}` : "Filter"}
-                </button>
-                <button onClick={() => setShowSort(true)} style={{ background:sortBy!=="score_desc"?"rgba(196,98,45,0.12)":"var(--surface)", border:`1px solid ${sortBy!=="score_desc"?"#C4622D":"var(--border)"}`, color:sortBy!=="score_desc"?"#C4622D":"var(--muted)", borderRadius:10, padding:"10px 12px", cursor:"pointer", fontFamily:"'DM Sans', sans-serif", flexShrink:0, display:"flex", alignItems:"center" }}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4"/><path d="M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
-                </button>
-              </>
-            )}
-          </div>
-        )}
         </div>{/* end fixed header */}
 
         {/* ── Scrollable entries ── */}
@@ -1082,7 +1084,7 @@ export default function App() {
         </div>{/* end scrollable entries */}
 
         <BottomNav view="list" onList={() => setView("list")} onWish={() => setView("wishlist")} onMap={() => setView("map")} onAdd={openAdd} onSettings={() => setShowSettings(true)} />
-        {showShare    && <ShareModal syncId={syncId} onClose={() => setShowShare(false)} />}
+        {showShare    && <ShareModal syncId={syncId} onExportPdf={() => handlePrint(visibleEntries, activeCuisine)} onClose={() => setShowShare(false)} />}
         {showFilter   && <FilterSheet cuisineStyles={cuisineConfig.styles} filterTiers={filterTiers} filterStyles={filterStyles} filterPrices={filterPrices} onToggleTier={v => toggleArr(filterTiers, setFilterTiers, v)} onToggleStyle={v => toggleArr(filterStyles, setFilterStyles, v)} onTogglePrice={v => toggleArr(filterPrices, setFilterPrices, v)} onClear={() => { setFilterTiers([]); setFilterStyles([]); setFilterPrices([]); }} onClose={() => setShowFilter(false)} />}
         {showSort     && <SortSheet sortBy={sortBy} onSort={setSortBy} criteria={activeCriteria} onClose={() => setShowSort(false)} />}
         {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} googleApiKey={googleApiKey} onGoogleApiKey={handleGoogleApiKey} onClose={() => setShowSettings(false)} />}
