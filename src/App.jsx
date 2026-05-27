@@ -149,7 +149,6 @@ const THEME_KEY    = "la-guida-theme";
 const INITIALS_KEY = "la-guida-initials";
 const CUISINE_KEY  = "la-guida-cuisine";
 const DELETED_KEY  = "la-guida-deleted-v3";
-const GPLACES_KEY  = "la-guida-gplaces-key";
 const TIERS        = ["Leggendaria","Eccellente","Buona","Nella media","Evita"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -206,35 +205,27 @@ async function geocodeLocation(query) {
   return null;
 }
 
-async function lookupGooglePlace(name, lat, lng, apiKey) {
-  if (!apiKey?.trim()) return null;
-  return new Promise(resolve => {
-    function run() {
-      const div = document.createElement("div");
-      const svc = new window.google.maps.places.PlacesService(div);
-      svc.findPlaceFromText(
-        { query: `${name}`, fields: ["formatted_phone_number","opening_hours","website"], locationBias: new window.google.maps.LatLng(lat, lng) },
-        (results, status) => {
-          if (status === "OK" && results?.[0]) {
-            resolve({
-              phone: results[0].formatted_phone_number || "",
-              openingHours: results[0].opening_hours?.weekday_text?.join("\n") || "",
-            });
-          } else resolve(null);
-        }
-      );
-    }
-    if (window.google?.maps?.places) { run(); return; }
-    if (document.querySelector(`script[src*="maps.googleapis.com"]`)) {
-      const wait = setInterval(() => { if (window.google?.maps?.places) { clearInterval(wait); run(); } }, 200);
-      return;
-    }
-    const s = document.createElement("script");
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-    s.onload = run;
-    s.onerror = () => resolve(null);
-    document.head.appendChild(s);
-  });
+async function lookupOSMPlace(name, lat, lng) {
+  try {
+    const safe  = name.replace(/[\\/"[\]]/g, "").slice(0, 50);
+    const query = `[out:json][timeout:10];(node(around:250,${lat},${lng})["name"~"${safe}",i];way(around:250,${lat},${lng})["name"~"${safe}",i];);out body;`;
+    const res   = await fetch("https://overpass-api.de/api/interpreter", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `data=${encodeURIComponent(query)}`,
+    });
+    const data = await res.json();
+    // Pick best match — prefer exact name match
+    const el = data.elements?.find(e => e.tags?.name?.toLowerCase() === name.toLowerCase())
+            || data.elements?.[0];
+    if (!el?.tags) return null;
+    const t = el.tags;
+    return {
+      phone:        t.phone || t["contact:phone"] || t["contact:mobile"] || "",
+      openingHours: t.opening_hours || "",
+      website:      t.website || t["contact:website"] || "",
+    };
+  } catch { return null; }
 }
 
 async function compressImage(file) {
@@ -537,12 +528,11 @@ function SortSheet({ sortBy, onSort, criteria, onClose }) {
 }
 
 // ─── Settings Panel ───────────────────────────────────────────────────────────
-function SettingsPanel({ theme, onTheme, userInitials, onInitials, googleApiKey, onGoogleApiKey, onClose }) {
+function SettingsPanel({ theme, onTheme, userInitials, onInitials, onClose }) {
   const [init, setInit] = useState(userInitials);
-  const [gkey, setGkey] = useState(googleApiKey);
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:2000, display:"flex", alignItems:"flex-end" }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background:"var(--surface)", borderRadius:"18px 18px 0 0", padding:"24px 24px 40px", width:"100%", maxWidth:430, margin:"0 auto", border:"1px solid var(--border)", borderBottom:"none", maxHeight:"85vh", overflowY:"auto" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"var(--surface)", borderRadius:"18px 18px 0 0", padding:"24px 24px 40px", width:"100%", maxWidth:430, margin:"0 auto", border:"1px solid var(--border)", borderBottom:"none" }}>
         <div style={{ width:36, height:4, background:"var(--border)", borderRadius:2, margin:"0 auto 24px" }} />
         <div style={{ fontFamily:"'Playfair Display', serif", fontSize:18, fontWeight:600, marginBottom:24, color:"var(--text)" }}>Settings</div>
         <div style={{ marginBottom:24 }}>
@@ -556,15 +546,7 @@ function SettingsPanel({ theme, onTheme, userInitials, onInitials, googleApiKey,
           <div style={{ fontSize:12, color:"var(--dim)", marginBottom:10, lineHeight:1.6 }}>Shows on entries as a badge in shared guides.</div>
           <div style={{ display:"flex", gap:10 }}>
             <input className="pg-input" placeholder="e.g. GR" value={init} maxLength={3} onChange={e => setInit(e.target.value.toUpperCase())} style={{ flex:1, textTransform:"uppercase", letterSpacing:2, fontWeight:600 }} />
-            <button onClick={() => { onInitials(init); }} style={{ background:"#C4622D", border:"none", color:"#F0EBE1", borderRadius:10, padding:"0 18px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600 }}>Save</button>
-          </div>
-        </div>
-        <div style={{ marginBottom:24 }}>
-          <div style={{ fontSize:10, letterSpacing:2, color:"#C4622D", textTransform:"uppercase", fontWeight:600, marginBottom:10 }}>Google Places API Key</div>
-          <div style={{ fontSize:12, color:"var(--dim)", marginBottom:10, lineHeight:1.6 }}>Enables auto-filling phone numbers and opening hours when adding a place. Get a key at <span style={{ color:"#4285F4" }}>console.cloud.google.com</span> → Places API.</div>
-          <div style={{ display:"flex", gap:10 }}>
-            <input className="pg-input" placeholder="AIza…" value={gkey} onChange={e => setGkey(e.target.value)} style={{ flex:1, fontSize:12, fontFamily:"monospace" }} />
-            <button onClick={() => onGoogleApiKey(gkey)} style={{ background:"rgba(66,133,244,0.15)", border:"1px solid rgba(66,133,244,0.3)", color:"#4285F4", borderRadius:10, padding:"0 14px", fontSize:13, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600 }}>Save</button>
+            <button onClick={() => { onInitials(init); onClose(); }} style={{ background:"#C4622D", border:"none", color:"#F0EBE1", borderRadius:10, padding:"0 18px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600 }}>Save</button>
           </div>
         </div>
         <button onClick={onClose} style={{ width:"100%", background:"transparent", border:"1px solid var(--border)", color:"var(--muted)", borderRadius:12, padding:"13px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif" }}>Close</button>
@@ -636,7 +618,6 @@ export default function App() {
   const [deletedIds, setDeletedIds] = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem(DELETED_KEY) || "[]")); } catch { return new Set(); }
   });
-  const [googleApiKey, setGoogleApiKey] = useState(() => localStorage.getItem(GPLACES_KEY) || "");
   const [lookingUp, setLookingUp] = useState(false);
   const fileRef       = useRef();
   const entriesRef    = useRef([]);
@@ -661,7 +642,7 @@ export default function App() {
       let activeSyncId;
 
       if (urlViewId) {
-        // View-only mode: load from cloud, never push back
+        // View-only mode: load entries from cloud, never push back, never show owner's wishlist
         setViewOnly(true);
         viewOnlyRef.current = true;
         setSyncStatus("syncing");
@@ -669,15 +650,13 @@ export default function App() {
         const cloud = await pullFromCloud(urlViewId);
         if (cloud?.entries?.length > 0) {
           const me = cloud.entries.map(e => ({ ...e, cuisine: migrateCuisine(e.cuisine) }));
-          const mw = (cloud.wishlist || []).map(w => ({ ...w, cuisine: migrateCuisine(w.cuisine) }));
-          setEntries(me); setWishlist(mw);
+          setEntries(me); // wishlist intentionally NOT loaded for view-only users
         }
         setSyncStatus("ok");
-        // Keep own syncId unchanged; poll the viewed guide for live updates
         const existingId = localSyncId || generateUUID();
         if (!localSyncId) localStorage.setItem(SYNC_ID_KEY, existingId);
         setSyncId(existingId);
-        setPollId(urlViewId); // poll the guide we're viewing
+        setPollId(urlViewId);
         return;
       }
 
@@ -785,16 +764,18 @@ export default function App() {
       }
     }
 
-    // Merge wishlist (same tombstone logic)
-    const wl      = wishlistRef.current;
-    const wlIds   = new Set(wl.map(w => w.id));
-    const newWish = (cloud.wishlist || [])
-      .filter(w => !wlIds.has(w.id) && !allDeleted.has(w.id))
-      .map(w => ({ ...w, cuisine: migrateCuisine(w.cuisine) }));
-    if (newWish.length) {
-      const mergedWish = [...wl, ...newWish];
-      setWishlist(mergedWish);
-      localStorage.setItem(WISHLIST_KEY, JSON.stringify(mergedWish));
+    // Merge wishlist (collaborators only — view-only users never see the owner's wishlist)
+    if (!viewOnlyRef.current) {
+      const wl      = wishlistRef.current;
+      const wlIds   = new Set(wl.map(w => w.id));
+      const newWish = (cloud.wishlist || [])
+        .filter(w => !wlIds.has(w.id) && !allDeleted.has(w.id))
+        .map(w => ({ ...w, cuisine: migrateCuisine(w.cuisine) }));
+      if (newWish.length) {
+        const mergedWish = [...wl, ...newWish];
+        setWishlist(mergedWish);
+        localStorage.setItem(WISHLIST_KEY, JSON.stringify(mergedWish));
+      }
     }
 
     setSyncStatus("ok");
@@ -893,20 +874,24 @@ export default function App() {
   }
 
   function handleInitials(val) { setUserInitials(val); localStorage.setItem(INITIALS_KEY, val); }
-  function handleGoogleApiKey(val) { setGoogleApiKey(val); localStorage.setItem(GPLACES_KEY, val); }
 
   async function handleLookupPlace() {
-    if (!form.name.trim() || !googleApiKey) return;
+    if (!form.name.trim()) return;
     setLookingUp(true);
-    // Geocode first if we don't have coords
     let lat = form.lat, lng = form.lng;
     if (!lat && form.location?.trim()) {
       const coords = await geocodeLocation(form.location || form.name);
       if (coords) { lat = coords.lat; lng = coords.lng; setForm(f => ({ ...f, lat, lng })); }
     }
     if (!lat) { setLookingUp(false); return; }
-    const result = await lookupGooglePlace(form.name, lat, lng, googleApiKey);
-    if (result) setForm(f => ({ ...f, phone: result.phone || f.phone, openingHours: result.openingHours || f.openingHours }));
+    const result = await lookupOSMPlace(form.name, lat, lng);
+    if (result) {
+      setForm(f => ({
+        ...f,
+        phone:        result.phone        || f.phone,
+        openingHours: result.openingHours || f.openingHours,
+      }));
+    }
     setLookingUp(false);
   }
 
@@ -1087,7 +1072,7 @@ export default function App() {
         {showShare    && <ShareModal syncId={syncId} onExportPdf={() => handlePrint(visibleEntries, activeCuisine)} onClose={() => setShowShare(false)} />}
         {showFilter   && <FilterSheet cuisineStyles={cuisineConfig.styles} filterTiers={filterTiers} filterStyles={filterStyles} filterPrices={filterPrices} onToggleTier={v => toggleArr(filterTiers, setFilterTiers, v)} onToggleStyle={v => toggleArr(filterStyles, setFilterStyles, v)} onTogglePrice={v => toggleArr(filterPrices, setFilterPrices, v)} onClear={() => { setFilterTiers([]); setFilterStyles([]); setFilterPrices([]); }} onClose={() => setShowFilter(false)} />}
         {showSort     && <SortSheet sortBy={sortBy} onSort={setSortBy} criteria={activeCriteria} onClose={() => setShowSort(false)} />}
-        {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} googleApiKey={googleApiKey} onGoogleApiKey={handleGoogleApiKey} onClose={() => setShowSettings(false)} />}
+        {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} onClose={() => setShowSettings(false)} />}
       </div>
     );
   }
@@ -1153,7 +1138,7 @@ export default function App() {
         </div>{/* end scrollable items */}
 
         <BottomNav view="wishlist" onList={() => setView("list")} onWish={() => setView("wishlist")} onMap={() => setView("map")} onAdd={openAdd} onSettings={() => setShowSettings(true)} />
-        {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} googleApiKey={googleApiKey} onGoogleApiKey={handleGoogleApiKey} onClose={() => setShowSettings(false)} />}
+        {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} onClose={() => setShowSettings(false)} />}
       </div>
     );
   }
@@ -1265,7 +1250,7 @@ export default function App() {
           </div>
         </div>
         <BottomNav view="map" onList={() => setView("list")} onWish={() => setView("wishlist")} onMap={() => setView("map")} onAdd={openAdd} onSettings={() => setShowSettings(true)} />
-        {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} googleApiKey={googleApiKey} onGoogleApiKey={handleGoogleApiKey} onClose={() => setShowSettings(false)} />}
+        {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} onClose={() => setShowSettings(false)} />}
       </div>
     );
   }
@@ -1446,10 +1431,10 @@ export default function App() {
               <div style={{ fontSize:10, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:6 }}>Phone</div>
               <input className="pg-input" placeholder="+39 02 1234567" value={form.phone||""} onChange={e => setForm(f => ({ ...f, phone:e.target.value }))} />
             </div>
-            {googleApiKey && (
+            {form.name.trim() && (
               <div style={{ display:"flex", alignItems:"flex-end" }}>
-                <button onClick={handleLookupPlace} disabled={lookingUp || !form.name} style={{ background:lookingUp?"var(--surface)":"rgba(66,133,244,0.12)", border:"1px solid rgba(66,133,244,0.3)", color:"#4285F4", borderRadius:10, padding:"10px 12px", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600, whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:5 }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                <button onClick={handleLookupPlace} disabled={lookingUp} style={{ background:lookingUp?"var(--surface)":"rgba(91,138,91,0.12)", border:"1px solid rgba(91,138,91,0.3)", color:"#5B8A5B", borderRadius:10, padding:"10px 12px", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600, whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:5 }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                   {lookingUp ? "Looking up…" : "Auto-fill"}
                 </button>
               </div>
@@ -1459,11 +1444,6 @@ export default function App() {
             <div style={{ fontSize:10, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:6 }}>Opening Hours <span style={{ fontWeight:400, textTransform:"none" }}>(optional)</span></div>
             <textarea className="pg-textarea" style={{ minHeight:64, fontSize:12 }} placeholder={"Mon–Fri: 12:00–14:30, 19:00–23:00\nSat–Sun: 12:00–23:00"} value={form.openingHours||""} onChange={e => setForm(f => ({ ...f, openingHours:e.target.value }))} />
           </div>
-          {!googleApiKey && (
-            <div style={{ fontSize:11, color:"var(--dimmer)", background:"var(--surface)", borderRadius:8, padding:"8px 12px", marginBottom:16 }}>
-              💡 Add a Google Places API key in Settings to auto-fill phone & hours from Google.
-            </div>
-          )}
 
           <div style={{ display:"flex", gap:12, marginBottom:4 }}>
             <div style={{ flex:1 }}>
