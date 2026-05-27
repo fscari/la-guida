@@ -207,17 +207,33 @@ async function geocodeLocation(query) {
 
 async function lookupOSMPlace(name, lat, lng) {
   try {
-    const safe  = name.replace(/[\\/"[\]]/g, "").slice(0, 50);
-    const query = `[out:json][timeout:10];(node(around:250,${lat},${lng})["name"~"${safe}",i];way(around:250,${lat},${lng})["name"~"${safe}",i];);out body;`;
-    const res   = await fetch("https://overpass-api.de/api/interpreter", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    // 1. Nominatim search with viewbox bias — returns extratags (phone, opening_hours, website)
+    const vb = `${lng-0.03},${lat+0.03},${lng+0.03},${lat-0.03}`;
+    const nmRes = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(name)}&format=json&limit=8&extratags=1&addressdetails=0&viewbox=${vb}&bounded=0`,
+      { headers: { "User-Agent": "LaGuida/3.0", "Accept-Language": "en" } }
+    );
+    const nmData = await nmRes.json();
+    const best = nmData.find(e => e.extratags?.phone || e.extratags?.opening_hours || e.extratags?.["contact:phone"])
+              || nmData.find(e => e.extratags)
+              || nmData[0];
+    if (best?.extratags) {
+      const et = best.extratags;
+      return {
+        phone:        et.phone || et["contact:phone"] || et["contact:mobile"] || "",
+        openingHours: et.opening_hours || "",
+        website:      et.website || et["contact:website"] || "",
+      };
+    }
+    // 2. Overpass fallback — direct tag lookup near coordinates
+    const safe  = name.replace(/[\\/"[\](){}|.*+?^$]/g, " ").trim().slice(0, 50);
+    const query = `[out:json][timeout:12];(node(around:300,${lat},${lng})["name"~"${safe}",i];way(around:300,${lat},${lng})["name"~"${safe}",i];);out body;`;
+    const opRes = await fetch("https://overpass-api.de/api/interpreter", {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: `data=${encodeURIComponent(query)}`,
     });
-    const data = await res.json();
-    // Pick best match — prefer exact name match
-    const el = data.elements?.find(e => e.tags?.name?.toLowerCase() === name.toLowerCase())
-            || data.elements?.[0];
+    const opData = await opRes.json();
+    const el = opData.elements?.find(e => e.tags?.name?.toLowerCase() === name.toLowerCase()) || opData.elements?.[0];
     if (!el?.tags) return null;
     const t = el.tags;
     return {
@@ -338,14 +354,72 @@ function handlePrint(entries, cuisineKey = "pizza") {
   win.document.close();
 }
 
-// ─── Form defaults ────────────────────────────────────────────────────────────
+// ─── Open Now parser ─────────────────────────────────────────────────────────
+function isOpenNow(hoursStr) {
+  if (!hoursStr?.trim()) return null;
+  try {
+    const now    = new Date();
+    const day    = ["Su","Mo","Tu","We","Th","Fr","Sa"][now.getDay()];
+    const mins   = now.getHours() * 60 + now.getMinutes();
+    const DAYS   = ["Mo","Tu","We","Th","Fr","Sa","Su"];
+    for (const seg of hoursStr.split(";")) {
+      const m = seg.trim().match(/^([A-Za-z,\- ]+?)\s{1,3}(\d.+)/);
+      if (!m) continue;
+      const [, dayPart, timesPart] = m;
+      let appliesToday = false;
+      for (const grp of dayPart.split(",")) {
+        const g = grp.trim();
+        if (g.includes("-")) {
+          const [s, e] = g.split("-").map(x => x.trim());
+          const [si, ei, di] = [DAYS.indexOf(s), DAYS.indexOf(e), DAYS.indexOf(day)];
+          if (si >= 0 && ei >= 0 && di >= 0) appliesToday = si <= ei ? di >= si && di <= ei : di >= si || di <= ei;
+        } else if (g === day) appliesToday = true;
+      }
+      if (!appliesToday) continue;
+      if (/off|closed/i.test(timesPart.trim())) return false;
+      for (const range of timesPart.split(",")) {
+        const t = range.trim().match(/(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})/);
+        if (!t) continue;
+        const open = +t[1]*60 + +t[2], close = +t[3]*60 + +t[4];
+        if (mins >= open && mins <= close) return true;
+      }
+      return false;
+    }
+    return null;
+  } catch { return null; }
+}
+
+// ─── KML Export ──────────────────────────────────────────────────────────────
+function escXML(s) { return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+function exportKML(entries) {
+  const placemarks = entries.filter(e => e.lat && e.lng).map(e => {
+    const tier = getTier(e.weightedScore);
+    const desc = [
+      `${tier.label} · ${e.weightedScore.toFixed(1)}/10`,
+      e.style && `Style: ${e.style}`,
+      e.priceRange && `Price: ${e.priceRange}`,
+      e.location && `📍 ${e.location}`,
+      e.phone && `📞 ${e.phone}`,
+      e.openingHours && `🕐 ${e.openingHours}`,
+      e.reservationUrl && `🔗 ${e.reservationUrl}`,
+      e.notes && `"${e.notes}"`,
+    ].filter(Boolean).join("\n");
+    return `  <Placemark>\n    <name>${escXML(e.name)}</name>\n    <description>${escXML(desc)}</description>\n    <Point><coordinates>${e.lng},${e.lat},0</coordinates></Point>\n  </Placemark>`;
+  }).join("\n");
+  const kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n  <name>La Guida</name>\n${placemarks}\n</Document>\n</kml>`;
+  const blob = new Blob([kml], { type: "application/vnd.google-earth.kml+xml" });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement("a"), { href: url, download: "la-guida.kml" });
+  a.click(); URL.revokeObjectURL(url);
+}
 function freshForm(cuisine = "pizza", initials = "", styleOverride = null) {
   const config = CUISINE_CONFIGS[cuisine] || CUISINE_CONFIGS.pizza;
   const style  = styleOverride || config.styles[0];
   const { criteria } = getStyleCriteria(cuisine, style);
   const scores = {};
   criteria.forEach(c => { scores[c.key] = 7; });
-  return { name:"", location:"", style, dateVisited: new Date().toISOString().split("T")[0], dish:"", priceRange:"€€", scores, notes:"", wouldReturn:"Yes", cuisine, lat:null, lng:null, photo:null, addedBy:initials, phone:"", openingHours:"" };
+  return { name:"", location:"", style, dateVisited: new Date().toISOString().split("T")[0], dish:"", priceRange:"€€", scores, notes:"", wouldReturn:"Yes", cuisine, lat:null, lng:null, photo:null, addedBy:initials, phone:"", openingHours:"", reservationUrl:"" };
 }
 
 function freshWishForm(cuisine = "pizza", initials = "") {
@@ -415,7 +489,7 @@ function BottomNav({ view, onList, onWish, onMap, onAdd, onSettings }) {
 }
 
 // ─── Share Modal ──────────────────────────────────────────────────────────────
-function ShareModal({ syncId, onClose, onExportPdf }) {
+function ShareModal({ syncId, onClose, onExportPdf, onExportKml }) {
   const [copied, setCopied]       = useState(null); // "collab" | "view" | null
   const base      = `${window.location.origin}${window.location.pathname}`;
   const collabUrl = `${base}?sync=${syncId}`;
@@ -462,10 +536,16 @@ function ShareModal({ syncId, onClose, onExportPdf }) {
         </div>
 
         {/* Export PDF */}
-        <button onClick={() => { onExportPdf(); onClose(); }} style={{ width:"100%", background:"var(--bg)", border:"1px solid var(--border)", color:"var(--muted)", borderRadius:12, padding:"13px 16px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
+        <button onClick={() => { onExportPdf(); onClose(); }} style={{ width:"100%", background:"var(--bg)", border:"1px solid var(--border)", color:"var(--muted)", borderRadius:12, padding:"13px 16px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
           <span style={{ fontWeight:500 }}>Export PDF</span>
           <span style={{ marginLeft:"auto", fontSize:11, color:"var(--dimmer)" }}>Opens print dialog</span>
+        </button>
+        {/* Export KML for Google Maps */}
+        <button onClick={() => { onExportKml(); onClose(); }} style={{ width:"100%", background:"var(--bg)", border:"1px solid var(--border)", color:"var(--muted)", borderRadius:12, padding:"13px 16px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+          <span style={{ fontWeight:500 }}>Export to Google Maps</span>
+          <span style={{ marginLeft:"auto", fontSize:11, color:"var(--dimmer)" }}>Downloads .kml file</span>
         </button>
         <div style={{ height:1, background:"var(--border)", marginBottom:16 }} />
 
@@ -528,11 +608,23 @@ function SortSheet({ sortBy, onSort, criteria, onClose }) {
 }
 
 // ─── Settings Panel ───────────────────────────────────────────────────────────
-function SettingsPanel({ theme, onTheme, userInitials, onInitials, onClose }) {
-  const [init, setInit] = useState(userInitials);
+function SettingsPanel({ theme, onTheme, userInitials, onInitials, onJoin, onClose }) {
+  const [init, setInit]       = useState(userInitials);
+  const [joinUrl, setJoinUrl] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [joinMsg, setJoinMsg] = useState("");
+
+  async function handleJoin() {
+    const m = joinUrl.match(/[?&](sync|view)=([0-9a-f-]{36})/i);
+    if (!m) { setJoinMsg("Couldn't find a sync ID in that URL."); return; }
+    setJoining(true); setJoinMsg("");
+    await onJoin(m[2], m[1].toLowerCase() === "view");
+    setJoinMsg("Connected! The guide will sync shortly."); setJoining(false);
+  }
+
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:2000, display:"flex", alignItems:"flex-end" }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background:"var(--surface)", borderRadius:"18px 18px 0 0", padding:"24px 24px 40px", width:"100%", maxWidth:430, margin:"0 auto", border:"1px solid var(--border)", borderBottom:"none" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"var(--surface)", borderRadius:"18px 18px 0 0", padding:"24px 24px 40px", width:"100%", maxWidth:430, margin:"0 auto", border:"1px solid var(--border)", borderBottom:"none", maxHeight:"88vh", overflowY:"auto" }}>
         <div style={{ width:36, height:4, background:"var(--border)", borderRadius:2, margin:"0 auto 24px" }} />
         <div style={{ fontFamily:"'Playfair Display', serif", fontSize:18, fontWeight:600, marginBottom:24, color:"var(--text)" }}>Settings</div>
         <div style={{ marginBottom:24 }}>
@@ -548,6 +640,17 @@ function SettingsPanel({ theme, onTheme, userInitials, onInitials, onClose }) {
             <input className="pg-input" placeholder="e.g. GR" value={init} maxLength={3} onChange={e => setInit(e.target.value.toUpperCase())} style={{ flex:1, textTransform:"uppercase", letterSpacing:2, fontWeight:600 }} />
             <button onClick={() => { onInitials(init); onClose(); }} style={{ background:"#C4622D", border:"none", color:"#F0EBE1", borderRadius:10, padding:"0 18px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600 }}>Save</button>
           </div>
+        </div>
+        <div style={{ marginBottom:24 }}>
+          <div style={{ fontSize:10, letterSpacing:2, color:"#C4622D", textTransform:"uppercase", fontWeight:600, marginBottom:10 }}>Connect to a guide</div>
+          <div style={{ fontSize:12, color:"var(--dim)", marginBottom:10, lineHeight:1.6 }}>If you opened a sync link in your browser but this app (installed to home screen or dock) isn't synced, paste the link here to connect.</div>
+          <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+            <input className="pg-input" placeholder="Paste collaborator or view-only link…" value={joinUrl} onChange={e => setJoinUrl(e.target.value)} style={{ flex:1, fontSize:12 }} />
+            <button onClick={handleJoin} disabled={!joinUrl.trim() || joining} style={{ background:joining?"var(--surface)":"#C4622D", border:"none", color:joining?"var(--dimmer)":"#F0EBE1", borderRadius:10, padding:"0 14px", fontSize:13, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600, flexShrink:0 }}>
+              {joining ? "…" : "Connect"}
+            </button>
+          </div>
+          {joinMsg && <div style={{ fontSize:11, color:joinMsg.includes("Connected")?"#5B8A5B":"#8B4040", lineHeight:1.5 }}>{joinMsg}</div>}
         </div>
         <button onClick={onClose} style={{ width:"100%", background:"transparent", border:"1px solid var(--border)", color:"var(--muted)", borderRadius:12, padding:"13px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif" }}>Close</button>
       </div>
@@ -619,6 +722,7 @@ export default function App() {
     try { return new Set(JSON.parse(localStorage.getItem(DELETED_KEY) || "[]")); } catch { return new Set(); }
   });
   const [lookingUp, setLookingUp] = useState(false);
+  const [addingVisitTo, setAddingVisitTo] = useState(null); // entry ID when logging a re-visit
   const fileRef       = useRef();
   const entriesRef    = useRef([]);
   const wishlistRef   = useRef([]);
@@ -810,11 +914,32 @@ export default function App() {
   // ── Entry CRUD ─────────────────────────────────────────────────────────────
   async function saveEntry() {
     setSaving(true);
+
+    // ── Re-visit mode: log a new visit to an existing entry ──────────────────
+    if (addingVisitTo) {
+      const parent = entries.find(e => e.id === addingVisitTo);
+      if (!parent) { setSaving(false); return; }
+      const cuisine = parent.cuisine;
+      const score   = parseFloat(calcScore(form.scores, cuisine, parent.style).toFixed(1));
+      const newVisit = { id: String(Date.now()), date: form.dateVisited, scores: { ...form.scores }, dish: form.dish, notes: form.notes, wouldReturn: form.wouldReturn, weightedScore: score, addedBy: form.addedBy || userInitials };
+      // Seed visits array from the original entry if it doesn't have one yet
+      const existingVisits = parent.visits?.length
+        ? parent.visits
+        : [{ id: parent.id + "-v0", date: parent.dateVisited, scores: { ...parent.scores }, dish: parent.dish, notes: parent.notes, wouldReturn: parent.wouldReturn, weightedScore: parent.weightedScore, addedBy: parent.addedBy }];
+      const updated = { ...parent, weightedScore: score, scores: { ...form.scores }, dish: form.dish, notes: form.notes, wouldReturn: form.wouldReturn, updatedAt: Date.now(), visits: [newVisit, ...existingVisits] };
+      const next = entries.map(e => e.id === addingVisitTo ? updated : e).sort((a, b) => b.weightedScore - a.weightedScore);
+      setEntries(next); persist(next, syncId); setSaving(false);
+      setView("detail"); setAddingVisitTo(null); setSelectedId(addingVisitTo);
+      return;
+    }
+
+    // ── Normal new/edit entry ─────────────────────────────────────────────────
     let lat = form.lat, lng = form.lng;
     if (form.location?.trim() && !lat) { const c = await geocodeLocation(form.location); if (c) { lat = c.lat; lng = c.lng; } }
     const cuisine = form.cuisine || activeCuisine;
     const score   = parseFloat(calcScore(form.scores, cuisine, form.style).toFixed(1));
-    const entry   = { ...form, id: editingId || String(Date.now()), weightedScore: score, lat, lng, cuisine, addedBy: form.addedBy || userInitials, updatedAt: Date.now() };
+    const firstVisit = { id: String(Date.now()) + "-v0", date: form.dateVisited, scores: { ...form.scores }, dish: form.dish, notes: form.notes, wouldReturn: form.wouldReturn, weightedScore: score, addedBy: form.addedBy || userInitials };
+    const entry   = { ...form, id: editingId || String(Date.now()), weightedScore: score, lat, lng, cuisine, addedBy: form.addedBy || userInitials, updatedAt: Date.now(), visits: editingId ? (entries.find(e => e.id === editingId)?.visits || []) : [firstVisit] };
     const next    = [...(editingId ? entries.map(e => e.id === editingId ? entry : e) : [...entries, entry])].sort((a, b) => b.weightedScore - a.weightedScore);
     setEntries(next); persist(next, syncId); setSaving(false);
     setView(editingId ? "detail" : "list"); setEditingId(null); setForm(freshForm(activeCuisine, userInitials));
@@ -861,11 +986,18 @@ export default function App() {
     persistWish(wishlist.filter(w => w.id !== item.id));
   }
 
-  function openEdit(entry) { setForm({ ...entry, scores: { ...entry.scores } }); setEditingId(entry.id); setView("add"); }
+  function openEdit(entry) { setForm({ ...entry, scores: { ...entry.scores } }); setEditingId(entry.id); setAddingVisitTo(null); setView("add"); }
   function openDetail(id) { setSelectedId(id); setConfirmDel(false); setView("detail"); }
   function openAdd() {
     if (view === "wishlist") { setWishForm(freshWishForm(activeCuisine, userInitials)); setEditingWishId(null); setView("wishlist-add"); }
-    else { setForm(freshForm(activeCuisine, userInitials)); setEditingId(null); setView("add"); }
+    else { setForm(freshForm(activeCuisine, userInitials)); setEditingId(null); setAddingVisitTo(null); setView("add"); }
+  }
+  function startVisit(entry) {
+    const cuisine = migrateCuisine(entry.cuisine);
+    const { criteria } = getStyleCriteria(cuisine, entry.style);
+    const scores = {}; criteria.forEach(c => { scores[c.key] = 7; });
+    setForm({ ...freshForm(cuisine, userInitials), scores, style: entry.style, dish: "", notes: "", dateVisited: new Date().toISOString().split("T")[0], addedBy: userInitials });
+    setAddingVisitTo(entry.id); setEditingId(null); setView("add");
   }
 
   async function handlePhoto(e) {
@@ -874,6 +1006,22 @@ export default function App() {
   }
 
   function handleInitials(val) { setUserInitials(val); localStorage.setItem(INITIALS_KEY, val); }
+
+  async function handleJoin(uuid, isViewOnly) {
+    const cloud = await pullFromCloud(uuid);
+    if (!cloud?.entries) return;
+    const me = cloud.entries.map(e => ({ ...e, cuisine: migrateCuisine(e.cuisine) }));
+    setEntries(me); localStorage.setItem(STORAGE_KEY, JSON.stringify(me));
+    if (!isViewOnly) {
+      const mw = (cloud.wishlist || []).map(w => ({ ...w, cuisine: migrateCuisine(w.cuisine) }));
+      setWishlist(mw); localStorage.setItem(WISHLIST_KEY, JSON.stringify(mw));
+      localStorage.setItem(SYNC_ID_KEY, uuid);
+      setSyncId(uuid);
+    }
+    setViewOnly(isViewOnly);
+    viewOnlyRef.current = isViewOnly;
+    setPollId(uuid);
+  }
 
   async function handleLookupPlace() {
     if (!form.name.trim()) return;
@@ -1050,7 +1198,10 @@ export default function App() {
                 {entry.addedBy && <div style={{ position:"absolute", bottom:-4, right:-4, width:18, height:18, borderRadius:"50%", background:"#C4622D", fontSize:7, fontWeight:700, color:"#F0EBE1", display:"flex", alignItems:"center", justifyContent:"center", border:"1.5px solid var(--bg)" }}>{entry.addedBy.slice(0,2)}</div>}
               </div>
               <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontFamily:"'Playfair Display', serif", fontSize:16, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginBottom:3, color:"var(--text)" }}>{entry.name}</div>
+                <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:3 }}>
+                  <div style={{ fontFamily:"'Playfair Display', serif", fontSize:16, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", color:"var(--text)" }}>{entry.name}</div>
+                  {(() => { const o = isOpenNow(entry.openingHours); return o === true ? <div title="Open now" style={{ width:7, height:7, borderRadius:"50%", background:"#5B8A5B", flexShrink:0 }} /> : o === false ? <div title="Closed now" style={{ width:7, height:7, borderRadius:"50%", background:"#8B4040", flexShrink:0 }} /> : null; })()}
+                </div>
                 <div style={{ fontSize:12, color:"var(--dim)", display:"flex", gap:5, alignItems:"center", flexWrap:"wrap" }}>
                   {entry.location && <><span>{entry.location}</span><span>·</span></>}
                   <span>{entry.style}</span><span>·</span><span>{entry.priceRange}</span>
@@ -1069,10 +1220,10 @@ export default function App() {
         </div>{/* end scrollable entries */}
 
         <BottomNav view="list" onList={() => setView("list")} onWish={() => setView("wishlist")} onMap={() => setView("map")} onAdd={openAdd} onSettings={() => setShowSettings(true)} />
-        {showShare    && <ShareModal syncId={syncId} onExportPdf={() => handlePrint(visibleEntries, activeCuisine)} onClose={() => setShowShare(false)} />}
+        {showShare    && <ShareModal syncId={syncId} onExportPdf={() => handlePrint(visibleEntries, activeCuisine)} onExportKml={() => exportKML(entries.filter(e => migrateCuisine(e.cuisine) === activeCuisine))} onClose={() => setShowShare(false)} />}
         {showFilter   && <FilterSheet cuisineStyles={cuisineConfig.styles} filterTiers={filterTiers} filterStyles={filterStyles} filterPrices={filterPrices} onToggleTier={v => toggleArr(filterTiers, setFilterTiers, v)} onToggleStyle={v => toggleArr(filterStyles, setFilterStyles, v)} onTogglePrice={v => toggleArr(filterPrices, setFilterPrices, v)} onClear={() => { setFilterTiers([]); setFilterStyles([]); setFilterPrices([]); }} onClose={() => setShowFilter(false)} />}
         {showSort     && <SortSheet sortBy={sortBy} onSort={setSortBy} criteria={activeCriteria} onClose={() => setShowSort(false)} />}
-        {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} onClose={() => setShowSettings(false)} />}
+        {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} onJoin={handleJoin} onClose={() => setShowSettings(false)} />}
       </div>
     );
   }
@@ -1138,7 +1289,7 @@ export default function App() {
         </div>{/* end scrollable items */}
 
         <BottomNav view="wishlist" onList={() => setView("list")} onWish={() => setView("wishlist")} onMap={() => setView("map")} onAdd={openAdd} onSettings={() => setShowSettings(true)} />
-        {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} onClose={() => setShowSettings(false)} />}
+        {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} onJoin={handleJoin} onClose={() => setShowSettings(false)} />}
       </div>
     );
   }
@@ -1250,7 +1401,7 @@ export default function App() {
           </div>
         </div>
         <BottomNav view="map" onList={() => setView("list")} onWish={() => setView("wishlist")} onMap={() => setView("map")} onAdd={openAdd} onSettings={() => setShowSettings(true)} />
-        {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} onClose={() => setShowSettings(false)} />}
+        {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} onJoin={handleJoin} onClose={() => setShowSettings(false)} />}
       </div>
     );
   }
@@ -1292,20 +1443,53 @@ export default function App() {
               <div style={{ fontSize:11, color:"var(--dimmer)" }}>/10</div>
             </div>
           </div>
-          <div style={{ display:"flex", gap:8, marginTop:16, flexWrap:"wrap" }}>
+          <div style={{ display:"flex", gap:8, marginTop:16, flexWrap:"wrap", alignItems:"center" }}>
             <Chip>{detConfig.icon} {detConfig.label}</Chip>
             {selected.dish && <Chip>{selected.dish}</Chip>}
             {selected.dateVisited && <Chip>📅 {selected.dateVisited}</Chip>}
             <Chip style={{ color: selected.wouldReturn==="Yes"?"#5B8A5B":selected.wouldReturn==="No"?"#8B4040":"#C4622D" }}>↩ {selected.wouldReturn}</Chip>
             {selected.phone && <Chip>📞 {selected.phone}</Chip>}
+            {(() => { const o = isOpenNow(selected.openingHours); return o === true ? <Chip style={{ color:"#5B8A5B", borderColor:"rgba(91,138,91,0.3)" }}>● Open now</Chip> : o === false ? <Chip style={{ color:"#8B4040", borderColor:"rgba(139,64,64,0.3)" }}>● Closed now</Chip> : null; })()}
           </div>
+
+          {/* Reservation link */}
+          {selected.reservationUrl && (
+            <a href={selected.reservationUrl} target="_blank" rel="noopener noreferrer" style={{ display:"flex", alignItems:"center", gap:10, marginTop:14, background:"rgba(196,98,45,0.08)", border:"1px solid rgba(196,98,45,0.25)", borderRadius:10, padding:"11px 16px", textDecoration:"none" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4622D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              <span style={{ fontSize:13, color:"#C4622D", fontWeight:600 }}>Book a table</span>
+              <span style={{ marginLeft:"auto", fontSize:11, color:"var(--dimmer)" }}>{selected.reservationUrl.replace(/^https?:\/\/(www\.)?/, "").split("/")[0]}</span>
+            </a>
+          )}
+
           {selected.openingHours && (
-            <div style={{ marginTop:14, background:"var(--surface)", borderRadius:10, padding:"12px 16px", border:"1px solid var(--border)" }}>
-              <div style={{ fontSize:9, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:8, fontWeight:600 }}>Opening Hours</div>
+            <div style={{ marginTop:12, background:"var(--surface)", borderRadius:10, padding:"12px 16px", border:"1px solid var(--border)" }}>
+              <div style={{ fontSize:9, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:6, fontWeight:600 }}>Opening Hours</div>
               <div style={{ fontSize:12, color:"var(--muted)", whiteSpace:"pre-line", lineHeight:1.8 }}>{selected.openingHours}</div>
             </div>
           )}
         </div>
+
+        {/* Visit history */}
+        {(selected.visits?.length ?? 0) > 1 && (
+          <div style={{ padding:"20px 24px", ...divBdr }}>
+            <div style={secLbl}>Visit History <span style={{ color:"var(--dimmer)", fontWeight:400, textTransform:"none", letterSpacing:0 }}>({selected.visits.length})</span></div>
+            {selected.visits.map((v, i) => (
+              <div key={v.id} style={{ display:"flex", gap:12, alignItems:"flex-start", padding:"10px 0", borderBottom: i < selected.visits.length-1 ? "1px solid var(--border2)" : "none" }}>
+                <div style={{ fontFamily:"'Playfair Display', serif", fontSize:22, fontWeight:700, color:scoreColor(v.weightedScore), minWidth:42, lineHeight:1.1 }}>{v.weightedScore.toFixed(1)}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:12, color:"var(--dim)", display:"flex", gap:6, flexWrap:"wrap" }}>
+                    <span>{v.date}</span>
+                    {v.dish && <><span>·</span><span>{v.dish}</span></>}
+                    {v.addedBy && <><span>·</span><span style={{ color:"#C4622D" }}>{v.addedBy}</span></>}
+                    {v.wouldReturn && <><span>·</span><span style={{ color: v.wouldReturn==="Yes"?"#5B8A5B":v.wouldReturn==="No"?"#8B4040":"var(--dim)" }}>↩ {v.wouldReturn}</span></>}
+                  </div>
+                  {v.notes && <div style={{ fontSize:12, color:"var(--muted)", fontStyle:"italic", marginTop:3 }}>"{v.notes}"</div>}
+                </div>
+                {i === 0 && <span style={{ fontSize:9, letterSpacing:1.5, color:"#C4622D", textTransform:"uppercase", fontWeight:600, paddingTop:2 }}>latest</span>}
+              </div>
+            ))}
+          </div>
+        )}
 
         <div style={{ padding:"24px 24px 20px", ...divBdr }}>
           <div style={secLbl}>Score Breakdown{detConfig.criteriaByStyle && <span style={{ fontWeight:400, textTransform:"none", letterSpacing:1, marginLeft:8, color:"var(--dim)", fontSize:11 }}>— {selected.style}</span>}</div>
@@ -1333,7 +1517,10 @@ export default function App() {
           </div>
         )}
 
-        <div style={{ padding:"24px 24px" }}>
+        <div style={{ padding:"20px 24px 24px" }}>
+          <button onClick={() => startVisit(selected)} style={{ width:"100%", background:"rgba(196,98,45,0.08)", border:"1px solid rgba(196,98,45,0.25)", color:"#C4622D", borderRadius:10, padding:"12px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600, marginBottom:10 }}>
+            ＋ Log another visit
+          </button>
           {!confirmDel ? (
             <button onClick={() => setConfirmDel(true)} style={{ width:"100%", background:"transparent", border:"1px solid var(--border)", color:"var(--dim)", borderRadius:10, padding:"12px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif" }}>Remove from guide</button>
           ) : (
@@ -1355,13 +1542,13 @@ export default function App() {
   // ╚══════════════════════════════════════════════╝
   if (view === "add") {
     const isDynamic = !!formConfig.criteriaByStyle;
-    const canSave   = form.name.trim().length > 0 && !saving;
+    const canSave   = (addingVisitTo || form.name.trim().length > 0) && !saving;
     return (
       <div style={{ ...app, paddingBottom:60 }} className="pg-fade-in">
         <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }} onChange={handlePhoto} />
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 20px", ...divBdr, position:"sticky", top:0, background:"var(--bg)", zIndex:10 }}>
           <button onClick={() => { setView(editingId?"detail":"list"); setEditingId(null); }} style={{ background:"none", border:"none", color:"#C4622D", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif" }}>Cancel</button>
-          <div style={{ fontFamily:"'Playfair Display', serif", fontSize:17, color:"var(--text)" }}>{editingId ? "Edit Entry" : "Nuova Voce"}</div>
+          <div style={{ fontFamily:"'Playfair Display', serif", fontSize:17, color:"var(--text)" }}>{addingVisitTo ? `Re-visit · ${entries.find(e => e.id === addingVisitTo)?.name || ""}` : editingId ? "Edit Entry" : "Nuova Voce"}</div>
           <button onClick={saveEntry} disabled={!canSave} style={{ background:canSave?"#C4622D":"var(--surface)", border:"none", color:canSave?"#F0EBE1":"var(--dimmer)", borderRadius:8, padding:"8px 18px", fontSize:14, cursor:canSave?"pointer":"default", fontFamily:"'DM Sans', sans-serif", fontWeight:600 }}>{saving?"…":"Save"}</button>
         </div>
 
@@ -1376,7 +1563,7 @@ export default function App() {
         </div>
 
         <div style={{ padding:"16px 24px 0" }}>
-          {!editingId && (
+          {!editingId && !addingVisitTo && (
             <>
               <div style={secLbl}>Cuisine</div>
               <div style={{ marginBottom:16 }}>
@@ -1391,6 +1578,8 @@ export default function App() {
             </>
           )}
 
+          {!addingVisitTo && (
+            <>
           <div style={secLbl}>Photo</div>
           {form.photo ? (
             <div style={{ position:"relative", marginBottom:16 }}>
@@ -1421,7 +1610,6 @@ export default function App() {
               </div>
               <input className="pg-input" type="date" value={form.dateVisited} onChange={e => setForm(f => ({ ...f, dateVisited:e.target.value }))} style={{ flex:1 }} />
             </div>
-            <input className="pg-input" placeholder="Dish ordered" value={form.dish} onChange={e => setForm(f => ({ ...f, dish:e.target.value }))} />
             <input className="pg-input" placeholder="Your initials (badge on shared guides)" value={form.addedBy} onChange={e => setForm(f => ({ ...f, addedBy:e.target.value.toUpperCase().slice(0,3) }))} style={{ letterSpacing:2 }} />
           </div>
 
@@ -1442,8 +1630,23 @@ export default function App() {
           </div>
           <div style={{ marginBottom:16 }}>
             <div style={{ fontSize:10, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:6 }}>Opening Hours <span style={{ fontWeight:400, textTransform:"none" }}>(optional)</span></div>
-            <textarea className="pg-textarea" style={{ minHeight:64, fontSize:12 }} placeholder={"Mon–Fri: 12:00–14:30, 19:00–23:00\nSat–Sun: 12:00–23:00"} value={form.openingHours||""} onChange={e => setForm(f => ({ ...f, openingHours:e.target.value }))} />
+            <textarea className="pg-textarea" style={{ minHeight:64, fontSize:12 }} placeholder={"Mo-Fr 12:00-14:30,19:00-23:00\nSa-Su 12:00-23:00"} value={form.openingHours||""} onChange={e => setForm(f => ({ ...f, openingHours:e.target.value }))} />
           </div>
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:10, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:6 }}>Reservation URL <span style={{ fontWeight:400, textTransform:"none" }}>(optional)</span></div>
+            <input className="pg-input" placeholder="https://thefork.com/..." value={form.reservationUrl||""} onChange={e => setForm(f => ({ ...f, reservationUrl:e.target.value }))} />
+          </div>
+            </>
+          )}{/* end !addingVisitTo */}
+
+          {addingVisitTo && (
+            <div style={{ marginBottom:16 }}>
+              <div style={{ display:"flex", gap:10 }}>
+                <input className="pg-input" type="date" value={form.dateVisited} onChange={e => setForm(f => ({ ...f, dateVisited:e.target.value }))} style={{ flex:1 }} />
+                <input className="pg-input" placeholder="Dish ordered" value={form.dish} onChange={e => setForm(f => ({ ...f, dish:e.target.value }))} style={{ flex:2 }} />
+              </div>
+            </div>
+          )}
 
           <div style={{ display:"flex", gap:12, marginBottom:4 }}>
             <div style={{ flex:1 }}>
