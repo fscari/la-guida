@@ -419,7 +419,7 @@ function freshForm(cuisine = "pizza", initials = "", styleOverride = null) {
   const { criteria } = getStyleCriteria(cuisine, style);
   const scores = {};
   criteria.forEach(c => { scores[c.key] = 7; });
-  return { name:"", location:"", style, dateVisited: new Date().toISOString().split("T")[0], dish:"", priceRange:"€€", scores, notes:"", wouldReturn:"Yes", cuisine, lat:null, lng:null, photo:null, addedBy:initials, phone:"", openingHours:"", reservationUrl:"" };
+  return { name:"", location:"", style, dateVisited: new Date().toISOString().split("T")[0], dish:"", priceRange:"€€", scores, notes:"", wouldReturn:"Yes", cuisine, lat:null, lng:null, photo:null, addedBy:initials, phone:"", openingHours:"", reservationUrl:"", website:"" };
 }
 
 function freshWishForm(cuisine = "pizza", initials = "") {
@@ -1036,8 +1036,11 @@ export default function App() {
     if (result) {
       setForm(f => ({
         ...f,
-        phone:        result.phone        || f.phone,
-        openingHours: result.openingHours || f.openingHours,
+        phone:          result.phone        || f.phone,
+        openingHours:   result.openingHours || f.openingHours,
+        website:        result.website      || f.website,
+        // If no reservation URL yet and the website looks like a booking platform, use it
+        reservationUrl: f.reservationUrl || (/thefork|opentable|resy|sevenrooms|quandoo|fork/i.test(result.website) ? result.website : f.reservationUrl),
       }));
     }
     setLookingUp(false);
@@ -1449,16 +1452,39 @@ export default function App() {
             {selected.dateVisited && <Chip>📅 {selected.dateVisited}</Chip>}
             <Chip style={{ color: selected.wouldReturn==="Yes"?"#5B8A5B":selected.wouldReturn==="No"?"#8B4040":"#C4622D" }}>↩ {selected.wouldReturn}</Chip>
             {selected.phone && <Chip>📞 {selected.phone}</Chip>}
+            {selected.website && (
+              <a href={selected.website.startsWith("http") ? selected.website : "https://"+selected.website} target="_blank" rel="noopener noreferrer" style={{ textDecoration:"none" }}>
+                <Chip style={{ color:"#C4622D", borderColor:"rgba(196,98,45,0.3)" }}>🌐 Website</Chip>
+              </a>
+            )}
             {(() => { const o = isOpenNow(selected.openingHours); return o === true ? <Chip style={{ color:"#5B8A5B", borderColor:"rgba(91,138,91,0.3)" }}>● Open now</Chip> : o === false ? <Chip style={{ color:"#8B4040", borderColor:"rgba(139,64,64,0.3)" }}>● Closed now</Chip> : null; })()}
           </div>
 
           {/* Reservation link */}
           {selected.reservationUrl && (
-            <a href={selected.reservationUrl} target="_blank" rel="noopener noreferrer" style={{ display:"flex", alignItems:"center", gap:10, marginTop:14, background:"rgba(196,98,45,0.08)", border:"1px solid rgba(196,98,45,0.25)", borderRadius:10, padding:"11px 16px", textDecoration:"none" }}>
+            <a href={selected.reservationUrl.startsWith("http") ? selected.reservationUrl : "https://"+selected.reservationUrl} target="_blank" rel="noopener noreferrer" style={{ display:"flex", alignItems:"center", gap:10, marginTop:14, background:"rgba(196,98,45,0.08)", border:"1px solid rgba(196,98,45,0.25)", borderRadius:10, padding:"11px 16px", textDecoration:"none" }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4622D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               <span style={{ fontSize:13, color:"#C4622D", fontWeight:600 }}>Book a table</span>
-              <span style={{ marginLeft:"auto", fontSize:11, color:"var(--dimmer)" }}>{selected.reservationUrl.replace(/^https?:\/\/(www\.)?/, "").split("/")[0]}</span>
+              <span style={{ marginLeft:"auto", fontSize:11, color:"var(--dimmer)" }}>{(selected.reservationUrl.replace(/^https?:\/\/(www\.)?/,"").split("/")[0])}</span>
             </a>
+          )}
+
+          {/* Find on — pre-filled search links for TripAdvisor, TheFork, Google Maps */}
+          {(selected.name) && (
+            <div style={{ marginTop:12 }}>
+              <div style={{ fontSize:9, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:8, fontWeight:600 }}>Find on</div>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                {[
+                  { label:"TripAdvisor", color:"#00AA6C", url:`https://www.tripadvisor.com/Search?q=${encodeURIComponent((selected.name||"")+" "+(selected.location||""))}` },
+                  { label:"TheFork",     color:"#00B67A", url:`https://www.thefork.it/ricerca?q=${encodeURIComponent(selected.name||"")}${selected.location?`&cityName=${encodeURIComponent(selected.location)}`:""}` },
+                  { label:"Google Maps", color:"#4285F4", url:`https://www.google.com/maps/search/${encodeURIComponent((selected.name||"")+" "+(selected.location||""))}` },
+                ].map(s => (
+                  <a key={s.label} href={s.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration:"none", display:"inline-flex", alignItems:"center", gap:5, background:"var(--surface)", border:"1px solid var(--border)", borderRadius:8, padding:"6px 12px", fontSize:12, color:`${s.color}`, fontWeight:500 }}>
+                    {s.label} ↗
+                  </a>
+                ))}
+              </div>
+            </div>
           )}
 
           {selected.openingHours && (
@@ -1632,9 +1658,15 @@ export default function App() {
             <div style={{ fontSize:10, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:6 }}>Opening Hours <span style={{ fontWeight:400, textTransform:"none" }}>(optional)</span></div>
             <textarea className="pg-textarea" style={{ minHeight:64, fontSize:12 }} placeholder={"Mo-Fr 12:00-14:30,19:00-23:00\nSa-Su 12:00-23:00"} value={form.openingHours||""} onChange={e => setForm(f => ({ ...f, openingHours:e.target.value }))} />
           </div>
-          <div style={{ marginBottom:16 }}>
-            <div style={{ fontSize:10, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:6 }}>Reservation URL <span style={{ fontWeight:400, textTransform:"none" }}>(optional)</span></div>
-            <input className="pg-input" placeholder="https://thefork.com/..." value={form.reservationUrl||""} onChange={e => setForm(f => ({ ...f, reservationUrl:e.target.value }))} />
+          <div style={{ display:"flex", gap:10, marginBottom:16 }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:10, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:6 }}>Website</div>
+              <input className="pg-input" placeholder="https://pizzeriadamichele.com" value={form.website||""} onChange={e => setForm(f => ({ ...f, website:e.target.value }))} style={{ fontSize:12 }} />
+            </div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:10, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:6 }}>Reservation URL</div>
+              <input className="pg-input" placeholder="https://thefork.com/…" value={form.reservationUrl||""} onChange={e => setForm(f => ({ ...f, reservationUrl:e.target.value }))} style={{ fontSize:12 }} />
+            </div>
           </div>
             </>
           )}{/* end !addingVisitTo */}
