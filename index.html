@@ -58,17 +58,20 @@
       /* Custom SVG marker icons */
       .pg-map-icon { background: transparent !important; border: none !important; }
 
-      /* Light theme */
-      [data-theme="light"] {
-        --bg: #FAF7F4; --surface: #FFFFFF; --border: #E0D9D0; --border2: #EDE6DC;
-        --text: #1A1512; --muted: #7A7065; --dim: #C0B8B0; --dimmer: #D4CEC8;
-        --accent: #C4622D; --gold: #C49440; --green: #4A7A4A; --red: #8B4040;
-      }
+      /* Dark theme (default) */
       :root {
         --bg: #0D0B09; --surface: #1C1814; --border: #2A2520; --border2: #1C1814;
         --text: #F0EBE1; --muted: #8A8480; --dim: #4A4440; --dimmer: #3A3530;
         --accent: #C4622D; --gold: #D4A853; --green: #5B8A5B; --red: #8B4040;
       }
+      /* Light theme — must come AFTER :root to override */
+      [data-theme="light"] {
+        --bg: #FAF7F4; --surface: #FFFFFF; --border: #E0D9D0; --border2: #EDE6DC;
+        --text: #1A1512; --muted: #7A7065; --dim: #9A9490; --dimmer: #C0BAB4;
+        --accent: #C4622D; --gold: #C49440; --green: #4A7A4A; --red: #8B4040;
+      }
+      [data-theme="light"] .leaflet-control-attribution { background: rgba(250,247,244,.8) !important; color: #9A9490 !important; }
+      [data-theme="light"] body { background: #FAF7F4; }
     </style>
   </head>
   <body>
