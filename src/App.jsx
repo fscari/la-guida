@@ -173,6 +173,35 @@ function calcScore(scores, cuisine = "pizza", style = "") {
   return Object.entries(weights).reduce((acc, [k, w]) => acc + (Number(scores[k]) || 5) * w, 0);
 }
 
+// Average weighted score across all raters
+function calcAvgScore(ratings) {
+  const vals = Object.values(ratings || {}).map(r => r.weightedScore).filter(n => typeof n === "number" && !isNaN(n));
+  if (!vals.length) return 5;
+  return parseFloat((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1));
+}
+
+// Seed a ratings map from legacy entry fields
+function initRatings(entry) {
+  if (entry.ratings && Object.keys(entry.ratings).length > 0) return entry.ratings;
+  const key = entry.addedBy || "?";
+  return { [key]: { scores: entry.scores || {}, weightedScore: entry.weightedScore || 5, dish: entry.dish || "", notes: entry.notes || "", wouldReturn: entry.wouldReturn || "Yes", dateVisited: entry.dateVisited || "", addedBy: key, updatedAt: entry.updatedAt || 0 } };
+}
+
+// Merge two ratings maps: per-rater last-updatedAt wins
+function mergeRatings(a, b) {
+  const result = {};
+  for (const k of new Set([...Object.keys(a || {}), ...Object.keys(b || {})])) {
+    const ra = a?.[k], rb = b?.[k];
+    result[k] = !rb ? ra : !ra ? rb : (rb.updatedAt || 0) > (ra.updatedAt || 0) ? rb : ra;
+  }
+  return result;
+}
+
+// Is this URL a booking platform?
+function isBookingUrl(url = "") {
+  return /thefork|opentable|resy|sevenrooms|quandoo|fork\.it|restabook|tablecheck/i.test(url);
+}
+
 function getTier(s) {
   if (s >= 9) return { label:"Leggendaria", icon:"◈", color:"#D4A853", bg:"rgba(212,168,83,0.14)" };
   if (s >= 8) return { label:"Eccellente",  icon:"◆", color:"#C4622D", bg:"rgba(196,98,45,0.14)"  };
@@ -419,7 +448,7 @@ function freshForm(cuisine = "pizza", initials = "", styleOverride = null) {
   const { criteria } = getStyleCriteria(cuisine, style);
   const scores = {};
   criteria.forEach(c => { scores[c.key] = 7; });
-  return { name:"", location:"", style, dateVisited: new Date().toISOString().split("T")[0], dish:"", priceRange:"€€", scores, notes:"", wouldReturn:"Yes", cuisine, lat:null, lng:null, photo:null, addedBy:initials, phone:"", openingHours:"", reservationUrl:"", website:"" };
+  return { name:"", location:"", style, dateVisited: new Date().toISOString().split("T")[0], dish:"", priceRange:"€€", scores, notes:"", wouldReturn:"Yes", cuisine, lat:null, lng:null, photo:null, addedBy:initials, phone:"", openingHours:"", reservationUrl:"" };
 }
 
 function freshWishForm(cuisine = "pizza", initials = "") {
@@ -846,15 +875,20 @@ export default function App() {
     const merged = [];
 
     for (const eid of allIds) {
-      if (allDeleted.has(eid)) { changed = true; continue; } // purge local tombstoned entries
+      if (allDeleted.has(eid)) { changed = true; continue; }
       const l = localById[eid];
       const c = cloudById[eid];
       if (!c) { merged.push(l); }
       else if (!l) { merged.push(c); changed = true; }
       else {
-        const winner = (c.updatedAt || 0) > (l.updatedAt || 0) ? { ...c, photo: l.photo ?? c.photo } : l;
-        if (winner !== l) changed = true;
-        merged.push(winner);
+        // Merge ratings maps first — union of all raters, per-rater last-write wins
+        const mergedR = mergeRatings(initRatings(l), initRatings(c));
+        const avgWs   = calcAvgScore(mergedR);
+        // Base metadata from whichever device was updated more recently
+        const base    = (c.updatedAt || 0) > (l.updatedAt || 0) ? { ...c, photo: l.photo ?? c.photo } : l;
+        const result  = { ...base, ratings: mergedR, weightedScore: avgWs };
+        if (JSON.stringify(result) !== JSON.stringify(l)) changed = true;
+        merged.push(result);
       }
     }
 
@@ -914,19 +948,24 @@ export default function App() {
   // ── Entry CRUD ─────────────────────────────────────────────────────────────
   async function saveEntry() {
     setSaving(true);
+    const userKey = form.addedBy || userInitials || "?";
 
-    // ── Re-visit mode: log a new visit to an existing entry ──────────────────
+    // ── Re-visit / Add-rating mode ─────────────────────────────────────────────
     if (addingVisitTo) {
-      const parent = entries.find(e => e.id === addingVisitTo);
+      const parent  = entries.find(e => e.id === addingVisitTo);
       if (!parent) { setSaving(false); return; }
       const cuisine = parent.cuisine;
       const score   = parseFloat(calcScore(form.scores, cuisine, parent.style).toFixed(1));
-      const newVisit = { id: String(Date.now()), date: form.dateVisited, scores: { ...form.scores }, dish: form.dish, notes: form.notes, wouldReturn: form.wouldReturn, weightedScore: score, addedBy: form.addedBy || userInitials };
-      // Seed visits array from the original entry if it doesn't have one yet
+      const newVisit = { id: String(Date.now()), date: form.dateVisited, scores: { ...form.scores }, dish: form.dish, notes: form.notes, wouldReturn: form.wouldReturn, weightedScore: score, addedBy: userKey, updatedAt: Date.now() };
       const existingVisits = parent.visits?.length
         ? parent.visits
         : [{ id: parent.id + "-v0", date: parent.dateVisited, scores: { ...parent.scores }, dish: parent.dish, notes: parent.notes, wouldReturn: parent.wouldReturn, weightedScore: parent.weightedScore, addedBy: parent.addedBy }];
-      const updated = { ...parent, weightedScore: score, scores: { ...form.scores }, dish: form.dish, notes: form.notes, wouldReturn: form.wouldReturn, updatedAt: Date.now(), visits: [newVisit, ...existingVisits] };
+      // Merge rater's new score into ratings map
+      const parentRatings = initRatings(parent);
+      const newRating     = { scores: { ...form.scores }, weightedScore: score, dish: form.dish, notes: form.notes, wouldReturn: form.wouldReturn, dateVisited: form.dateVisited, addedBy: userKey, updatedAt: Date.now() };
+      const updatedRatings = { ...parentRatings, [userKey]: newRating };
+      const avgScore = calcAvgScore(updatedRatings);
+      const updated = { ...parent, weightedScore: avgScore, scores: { ...form.scores }, dish: form.dish, notes: form.notes, wouldReturn: form.wouldReturn, updatedAt: Date.now(), ratings: updatedRatings, visits: [newVisit, ...existingVisits] };
       const next = entries.map(e => e.id === addingVisitTo ? updated : e).sort((a, b) => b.weightedScore - a.weightedScore);
       setEntries(next); persist(next, syncId); setSaving(false);
       setView("detail"); setAddingVisitTo(null); setSelectedId(addingVisitTo);
@@ -938,9 +977,15 @@ export default function App() {
     if (form.location?.trim() && !lat) { const c = await geocodeLocation(form.location); if (c) { lat = c.lat; lng = c.lng; } }
     const cuisine = form.cuisine || activeCuisine;
     const score   = parseFloat(calcScore(form.scores, cuisine, form.style).toFixed(1));
-    const firstVisit = { id: String(Date.now()) + "-v0", date: form.dateVisited, scores: { ...form.scores }, dish: form.dish, notes: form.notes, wouldReturn: form.wouldReturn, weightedScore: score, addedBy: form.addedBy || userInitials };
-    const entry   = { ...form, id: editingId || String(Date.now()), weightedScore: score, lat, lng, cuisine, addedBy: form.addedBy || userInitials, updatedAt: Date.now(), visits: editingId ? (entries.find(e => e.id === editingId)?.visits || []) : [firstVisit] };
-    const next    = [...(editingId ? entries.map(e => e.id === editingId ? entry : e) : [...entries, entry])].sort((a, b) => b.weightedScore - a.weightedScore);
+    // Build ratings map: keep all existing raters, update/add current user
+    const existingEntry  = editingId ? entries.find(e => e.id === editingId) : null;
+    const existingRatings = existingEntry ? initRatings(existingEntry) : {};
+    const myRating = { scores: { ...form.scores }, weightedScore: score, dish: form.dish, notes: form.notes, wouldReturn: form.wouldReturn, dateVisited: form.dateVisited, addedBy: userKey, updatedAt: Date.now() };
+    const updatedRatings  = { ...existingRatings, [userKey]: myRating };
+    const avgScore        = calcAvgScore(updatedRatings);
+    const firstVisit = { id: String(Date.now()) + "-v0", date: form.dateVisited, scores: { ...form.scores }, dish: form.dish, notes: form.notes, wouldReturn: form.wouldReturn, weightedScore: score, addedBy: userKey };
+    const entry = { ...form, id: editingId || String(Date.now()), weightedScore: avgScore, lat, lng, cuisine, addedBy: existingEntry?.addedBy || userKey, updatedAt: Date.now(), ratings: updatedRatings, visits: editingId ? (existingEntry?.visits || []) : [firstVisit] };
+    const next  = [...(editingId ? entries.map(e => e.id === editingId ? entry : e) : [...entries, entry])].sort((a, b) => b.weightedScore - a.weightedScore);
     setEntries(next); persist(next, syncId); setSaving(false);
     setView(editingId ? "detail" : "list"); setEditingId(null); setForm(freshForm(activeCuisine, userInitials));
   }
@@ -1038,9 +1083,8 @@ export default function App() {
         ...f,
         phone:          result.phone        || f.phone,
         openingHours:   result.openingHours || f.openingHours,
-        website:        result.website      || f.website,
-        // If no reservation URL yet and the website looks like a booking platform, use it
-        reservationUrl: f.reservationUrl || (/thefork|opentable|resy|sevenrooms|quandoo|fork/i.test(result.website) ? result.website : f.reservationUrl),
+        // Use OSM website as reservation/website field if not already set
+        reservationUrl: f.reservationUrl || result.website || "",
       }));
     }
     setLookingUp(false);
@@ -1430,41 +1474,57 @@ export default function App() {
         {selected.photo && <div style={{ height:200, overflow:"hidden" }}><img src={selected.photo} alt={selected.name} style={{ width:"100%", height:"100%", objectFit:"cover" }} /></div>}
 
         <div style={{ padding:"24px 24px 20px", ...divBdr }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
-            <div style={{ flex:1 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12, flexWrap:"wrap" }}>
-                <div style={{ display:"inline-flex", alignItems:"center", gap:6, background:tier.bg, borderRadius:6, padding:"4px 12px" }}>
-                  <span style={{ fontSize:11, color:tier.color, fontWeight:600, letterSpacing:2, textTransform:"uppercase" }}>{tier.icon} {tier.label}</span>
+          {(() => {
+            const entryRatings = initRatings(selected);
+            const raterKeys    = Object.keys(entryRatings);
+            const isMulti      = raterKeys.length > 1;
+            return (
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12, flexWrap:"wrap" }}>
+                    <div style={{ display:"inline-flex", alignItems:"center", gap:6, background:tier.bg, borderRadius:6, padding:"4px 12px" }}>
+                      <span style={{ fontSize:11, color:tier.color, fontWeight:600, letterSpacing:2, textTransform:"uppercase" }}>{tier.icon} {tier.label}</span>
+                    </div>
+                    {selected.addedBy && !isMulti && <div style={{ display:"inline-flex", alignItems:"center", background:"rgba(196,98,45,0.1)", borderRadius:6, padding:"4px 10px" }}><span style={{ fontSize:10, color:"#C4622D", fontWeight:600, letterSpacing:1 }}>By {selected.addedBy}</span></div>}
+                  </div>
+                  <div style={{ fontFamily:"'Playfair Display', serif", fontSize:28, fontWeight:700, lineHeight:1.2, marginBottom:6, letterSpacing:-.5, color:"var(--text)" }}>{selected.name}</div>
+                  <div style={{ fontSize:13, color:"var(--dim)" }}>{[selected.location, selected.style, selected.priceRange].filter(Boolean).join(" · ")}</div>
+                  {/* Per-rater mini scores */}
+                  {isMulti && (
+                    <div style={{ display:"flex", gap:8, marginTop:12, flexWrap:"wrap" }}>
+                      {raterKeys.map(k => {
+                        const r = entryRatings[k];
+                        return (
+                          <div key={k} style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:8, padding:"6px 12px", display:"flex", alignItems:"baseline", gap:6 }}>
+                            <span style={{ fontFamily:"'Playfair Display', serif", fontSize:16, fontWeight:700, color:scoreColor(r.weightedScore) }}>{r.weightedScore.toFixed(1)}</span>
+                            <span style={{ fontSize:10, color:"#C4622D", fontWeight:600 }}>{k}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-                {selected.addedBy && <div style={{ display:"inline-flex", alignItems:"center", background:"rgba(196,98,45,0.1)", borderRadius:6, padding:"4px 10px" }}><span style={{ fontSize:10, color:"#C4622D", fontWeight:600, letterSpacing:1 }}>By {selected.addedBy}</span></div>}
+                <div style={{ textAlign:"right", flexShrink:0 }}>
+                  <div style={{ fontFamily:"'Playfair Display', serif", fontSize:50, fontWeight:700, color:scoreColor(selected.weightedScore), lineHeight:1 }}>{selected.weightedScore.toFixed(1)}</div>
+                  <div style={{ fontSize:11, color:"var(--dimmer)" }}>{isMulti ? `avg of ${raterKeys.length}` : "/10"}</div>
+                </div>
               </div>
-              <div style={{ fontFamily:"'Playfair Display', serif", fontSize:28, fontWeight:700, lineHeight:1.2, marginBottom:6, letterSpacing:-.5, color:"var(--text)" }}>{selected.name}</div>
-              <div style={{ fontSize:13, color:"var(--dim)" }}>{[selected.location, selected.style, selected.priceRange].filter(Boolean).join(" · ")}</div>
-            </div>
-            <div style={{ textAlign:"right", flexShrink:0 }}>
-              <div style={{ fontFamily:"'Playfair Display', serif", fontSize:50, fontWeight:700, color:scoreColor(selected.weightedScore), lineHeight:1 }}>{selected.weightedScore.toFixed(1)}</div>
-              <div style={{ fontSize:11, color:"var(--dimmer)" }}>/10</div>
-            </div>
-          </div>
+            );
+          })()}
           <div style={{ display:"flex", gap:8, marginTop:16, flexWrap:"wrap", alignItems:"center" }}>
             <Chip>{detConfig.icon} {detConfig.label}</Chip>
             {selected.dish && <Chip>{selected.dish}</Chip>}
             {selected.dateVisited && <Chip>📅 {selected.dateVisited}</Chip>}
             <Chip style={{ color: selected.wouldReturn==="Yes"?"#5B8A5B":selected.wouldReturn==="No"?"#8B4040":"#C4622D" }}>↩ {selected.wouldReturn}</Chip>
             {selected.phone && <Chip>📞 {selected.phone}</Chip>}
-            {selected.website && (
-              <a href={selected.website.startsWith("http") ? selected.website : "https://"+selected.website} target="_blank" rel="noopener noreferrer" style={{ textDecoration:"none" }}>
-                <Chip style={{ color:"#C4622D", borderColor:"rgba(196,98,45,0.3)" }}>🌐 Website</Chip>
-              </a>
-            )}
             {(() => { const o = isOpenNow(selected.openingHours); return o === true ? <Chip style={{ color:"#5B8A5B", borderColor:"rgba(91,138,91,0.3)" }}>● Open now</Chip> : o === false ? <Chip style={{ color:"#8B4040", borderColor:"rgba(139,64,64,0.3)" }}>● Closed now</Chip> : null; })()}
           </div>
 
-          {/* Reservation link */}
+          {/* Website / Reservation URL — smart label */}
           {selected.reservationUrl && (
             <a href={selected.reservationUrl.startsWith("http") ? selected.reservationUrl : "https://"+selected.reservationUrl} target="_blank" rel="noopener noreferrer" style={{ display:"flex", alignItems:"center", gap:10, marginTop:14, background:"rgba(196,98,45,0.08)", border:"1px solid rgba(196,98,45,0.25)", borderRadius:10, padding:"11px 16px", textDecoration:"none" }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4622D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              <span style={{ fontSize:13, color:"#C4622D", fontWeight:600 }}>Book a table</span>
+              <span style={{ fontSize:13, color:"#C4622D", fontWeight:600 }}>{isBookingUrl(selected.reservationUrl) ? "Book a table" : "Visit website"}</span>
               <span style={{ marginLeft:"auto", fontSize:11, color:"var(--dimmer)" }}>{(selected.reservationUrl.replace(/^https?:\/\/(www\.)?/,"").split("/")[0])}</span>
             </a>
           )}
@@ -1518,22 +1578,48 @@ export default function App() {
         )}
 
         <div style={{ padding:"24px 24px 20px", ...divBdr }}>
-          <div style={secLbl}>Score Breakdown{detConfig.criteriaByStyle && <span style={{ fontWeight:400, textTransform:"none", letterSpacing:1, marginLeft:8, color:"var(--dim)", fontSize:11 }}>— {selected.style}</span>}</div>
-          {detCriteria.map(c => {
-            const val = selected.scores?.[c.key] ?? 5;
+          {(() => {
+            const entryRatings = initRatings(selected);
+            const raterKeys    = Object.keys(entryRatings);
+            const isMulti      = raterKeys.length > 1;
+            // Compute per-criterion averages across all raters
+            const avgScores = {};
+            detCriteria.forEach(c => {
+              const vals = raterKeys.map(k => entryRatings[k]?.scores?.[c.key]).filter(v => typeof v === "number");
+              avgScores[c.key] = vals.length ? parseFloat((vals.reduce((a,b) => a+b, 0) / vals.length).toFixed(1)) : (selected.scores?.[c.key] ?? 5);
+            });
             return (
-              <div key={c.key} style={{ marginBottom:18 }}>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:8 }}>
-                  <div><span style={{ fontSize:14, fontWeight:500, color:"var(--text)" }}>{c.label}</span><span style={{ fontSize:11, color:"var(--dimmer)", marginLeft:8 }}>{c.weight}</span></div>
-                  <span style={{ fontFamily:"'Playfair Display', serif", fontSize:22, fontWeight:700, color:scoreColor(val) }}>{val}</span>
+              <>
+                <div style={secLbl}>
+                  Score Breakdown
+                  {detConfig.criteriaByStyle && <span style={{ fontWeight:400, textTransform:"none", letterSpacing:1, marginLeft:8, color:"var(--dim)", fontSize:11 }}>— {selected.style}</span>}
+                  {isMulti && <span style={{ fontWeight:400, textTransform:"none", letterSpacing:1, marginLeft:8, color:"var(--dim)", fontSize:11 }}>· avg of {raterKeys.length}</span>}
                 </div>
-                <div style={{ height:3, background:"var(--surface)", borderRadius:2, overflow:"hidden" }}>
-                  <div style={{ height:"100%", width:`${(val/10)*100}%`, background:scoreColor(val), borderRadius:2 }} />
-                </div>
-                <div style={{ fontSize:11, color:"var(--dimmer)", marginTop:4 }}>{c.sub}</div>
-              </div>
+                {detCriteria.map(c => {
+                  const val = avgScores[c.key];
+                  return (
+                    <div key={c.key} style={{ marginBottom:18 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:8 }}>
+                        <div><span style={{ fontSize:14, fontWeight:500, color:"var(--text)" }}>{c.label}</span><span style={{ fontSize:11, color:"var(--dimmer)", marginLeft:8 }}>{c.weight}</span></div>
+                        <div style={{ display:"flex", alignItems:"baseline", gap:8 }}>
+                          {isMulti && raterKeys.map(k => (
+                            <span key={k} style={{ fontSize:12, color:"var(--dimmer)" }}>
+                              {entryRatings[k]?.scores?.[c.key] ?? "–"}<span style={{ fontSize:9, color:"var(--dim)", marginLeft:2 }}>{k}</span>
+                            </span>
+                          ))}
+                          <span style={{ fontFamily:"'Playfair Display', serif", fontSize:22, fontWeight:700, color:scoreColor(val) }}>{val}</span>
+                        </div>
+                      </div>
+                      <div style={{ height:3, background:"var(--surface)", borderRadius:2, overflow:"hidden" }}>
+                        <div style={{ height:"100%", width:`${(val/10)*100}%`, background:scoreColor(val), borderRadius:2 }} />
+                      </div>
+                      <div style={{ fontSize:11, color:"var(--dimmer)", marginTop:4 }}>{c.sub}</div>
+                    </div>
+                  );
+                })}
+              </>
             );
-          })}
+          })()}
         </div>
 
         {selected.notes && (
@@ -1544,9 +1630,16 @@ export default function App() {
         )}
 
         <div style={{ padding:"20px 24px 24px" }}>
-          <button onClick={() => startVisit(selected)} style={{ width:"100%", background:"rgba(196,98,45,0.08)", border:"1px solid rgba(196,98,45,0.25)", color:"#C4622D", borderRadius:10, padding:"12px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600, marginBottom:10 }}>
-            ＋ Log another visit
-          </button>
+          {(() => {
+            const entryRatings = initRatings(selected);
+            const currentUserKey = userInitials || "?";
+            const alreadyRated   = !!entryRatings[currentUserKey];
+            return (
+              <button onClick={() => startVisit(selected)} style={{ width:"100%", background:"rgba(196,98,45,0.08)", border:"1px solid rgba(196,98,45,0.25)", color:"#C4622D", borderRadius:10, padding:"12px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600, marginBottom:10 }}>
+                {alreadyRated ? "＋ Log another visit" : "＋ Add my rating"}
+              </button>
+            );
+          })()}
           {!confirmDel ? (
             <button onClick={() => setConfirmDel(true)} style={{ width:"100%", background:"transparent", border:"1px solid var(--border)", color:"var(--dim)", borderRadius:10, padding:"12px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif" }}>Remove from guide</button>
           ) : (
@@ -1658,15 +1751,9 @@ export default function App() {
             <div style={{ fontSize:10, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:6 }}>Opening Hours <span style={{ fontWeight:400, textTransform:"none" }}>(optional)</span></div>
             <textarea className="pg-textarea" style={{ minHeight:64, fontSize:12 }} placeholder={"Mo-Fr 12:00-14:30,19:00-23:00\nSa-Su 12:00-23:00"} value={form.openingHours||""} onChange={e => setForm(f => ({ ...f, openingHours:e.target.value }))} />
           </div>
-          <div style={{ display:"flex", gap:10, marginBottom:16 }}>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:10, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:6 }}>Website</div>
-              <input className="pg-input" placeholder="https://pizzeriadamichele.com" value={form.website||""} onChange={e => setForm(f => ({ ...f, website:e.target.value }))} style={{ fontSize:12 }} />
-            </div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:10, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:6 }}>Reservation URL</div>
-              <input className="pg-input" placeholder="https://thefork.com/…" value={form.reservationUrl||""} onChange={e => setForm(f => ({ ...f, reservationUrl:e.target.value }))} style={{ fontSize:12 }} />
-            </div>
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:10, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:6 }}>Website / Reservation URL</div>
+            <input className="pg-input" placeholder="https://pizzeriadamichele.com or thefork link…" value={form.reservationUrl||""} onChange={e => setForm(f => ({ ...f, reservationUrl:e.target.value }))} style={{ fontSize:12 }} />
           </div>
             </>
           )}{/* end !addingVisitTo */}
