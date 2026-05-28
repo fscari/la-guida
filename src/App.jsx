@@ -1070,10 +1070,17 @@ export default function App() {
     else { setForm(freshForm(activeCuisine, userInitials)); setEditingId(null); setAddingVisitTo(null); setView("add"); }
   }
   function startVisit(entry) {
-    const cuisine = migrateCuisine(entry.cuisine);
-    const { criteria } = getStyleCriteria(cuisine, entry.style);
+    const cuisine        = migrateCuisine(entry.cuisine);
+    const { criteria }  = getStyleCriteria(cuisine, entry.style);
     const scores = {}; criteria.forEach(c => { scores[c.key] = 7; });
-    setForm({ ...freshForm(cuisine, userInitials), scores, style: entry.style, dish: "", notes: "", dateVisited: new Date().toISOString().split("T")[0], addedBy: userInitials });
+    const currentUserKey = userInitials || "?";
+    const alreadyRated   = !!initRatings(entry)[currentUserKey];
+    // "Add my rating" → default to the entry's original date (same visit, different rater)
+    // "Log another visit" → default to today
+    const defaultDate = alreadyRated
+      ? new Date().toISOString().split("T")[0]
+      : (entry.dateVisited || new Date().toISOString().split("T")[0]);
+    setForm({ ...freshForm(cuisine, userInitials), scores, style: entry.style, dish: "", notes: "", dateVisited: defaultDate, addedBy: userInitials });
     setAddingVisitTo(entry.id); setEditingId(null); setView("add");
   }
 
@@ -1820,6 +1827,7 @@ export default function App() {
               </div>
               <input className="pg-input" type="date" value={form.dateVisited} onChange={e => setForm(f => ({ ...f, dateVisited:e.target.value }))} style={{ flex:1 }} />
             </div>
+            <input className="pg-input" placeholder="Dish ordered" value={form.dish} onChange={e => setForm(f => ({ ...f, dish:e.target.value }))} />
             <input className="pg-input" placeholder="Your initials (badge on shared guides)" value={form.addedBy} onChange={e => setForm(f => ({ ...f, addedBy:e.target.value.toUpperCase().slice(0,4) }))} style={{ letterSpacing:2 }} />
           </div>
 
