@@ -452,7 +452,7 @@ function freshForm(cuisine = "pizza", initials = "", styleOverride = null) {
 }
 
 function freshWishForm(cuisine = "pizza", initials = "") {
-  return { name:"", location:"", style: CUISINE_CONFIGS[cuisine]?.styles[0] || "", notes:"", cuisine, lat:null, lng:null, dateAdded: new Date().toISOString().split("T")[0], addedBy:initials };
+  return { name:"", location:"", style: CUISINE_CONFIGS[cuisine]?.styles[0] || "", notes:"", cuisine, lat:null, lng:null, dateAdded: new Date().toISOString().split("T")[0], addedBy:initials, phone:"", openingHours:"", reservationUrl:"" };
 }
 
 // ─── Small components ─────────────────────────────────────────────────────────
@@ -716,6 +716,36 @@ function MapCuisineFilter({ active, onToggle }) {
   );
 }
 
+// ─── Help Sheet ───────────────────────────────────────────────────────────────
+function HelpSheet({ onClose }) {
+  const S = ({ children }) => <div style={{ marginBottom:20 }}>
+    <div style={{ fontSize:10, letterSpacing:2, color:"#C4622D", textTransform:"uppercase", fontWeight:600, marginBottom:8 }}>{children[0]}</div>
+    <div style={{ fontSize:13, color:"var(--muted)", lineHeight:1.8 }}>{children[1]}</div>
+  </div>;
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:2000, display:"flex", alignItems:"flex-end" }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"var(--surface)", borderRadius:"18px 18px 0 0", padding:"24px 24px 40px", width:"100%", maxWidth:430, margin:"0 auto", border:"1px solid var(--border)", borderBottom:"none", maxHeight:"88vh", overflowY:"auto" }}>
+        <div style={{ width:36, height:4, background:"var(--border)", borderRadius:2, margin:"0 auto 20px" }} />
+        <div style={{ fontFamily:"'Playfair Display', serif", fontSize:22, fontWeight:700, marginBottom:6, color:"var(--text)" }}>La Guida</div>
+        <div style={{ fontFamily:"'Playfair Display', serif", fontStyle:"italic", fontSize:14, color:"var(--dim)", marginBottom:24 }}>Your personal Michelin guide</div>
+
+        <S>{["Adding entries", <>Tap <strong style={{color:"var(--text)"}}>+</strong> to log a restaurant. Each entry gets a weighted score (1–10) calculated from criteria specific to the cuisine type. The score updates live as you move the sliders.</>]}</S>
+        <S>{["Score tiers", <><span style={{color:"#D4A853"}}>◈ Leggendaria</span> 9+ · <span style={{color:"#C4622D"}}>◆ Eccellente</span> 8+ · <span style={{color:"#5B8A5B"}}>◇ Buona</span> 7+ · <span style={{color:"#7A7470"}}>◻ Nella media</span> 6+ · <span style={{color:"#8B4040"}}>✕ Evita</span> below 6</>]}</S>
+        <S>{["Cuisines", "Pizza, Asian (Sushi, Ramen, Chinese, Thai, Vietnamese), Ethnic (Mexican, Indian, Middle Eastern, Greek, African, French), and Burgers. Each cuisine has its own weighted criteria — Asian and Ethnic criteria also adapt to the sub-type you select."]}</S>
+        <S>{["Auto-fill", "When adding a place, tap Auto-fill to look up phone, opening hours and website from OpenStreetMap. Works best for places that already exist on the map with full details filled in."]}</S>
+        <S>{["Open now", "A green dot next to a restaurant's name means it's open right now based on the stored opening hours. Red means closed."]}</S>
+        <S>{["Visit history & ratings", "Tap 'Log another visit' on any entry to record a new score over time. If a collaborator uses 'Add my rating', both scores are stored and the displayed score becomes the average."]}</S>
+        <S>{["Sharing", <>Open <strong style={{color:"var(--text)"}}>Share & Sync</strong> to get two links. The <strong style={{color:"#C4622D"}}>Collaborator</strong> link lets others add and rate — their entries sync back to you. The <strong style={{color:"#D4A853"}}>View only</strong> link shows your guide without syncing their additions back.</>]}</S>
+        <S>{["PWA / App", "If you installed this as an app from your home screen or dock and it isn't syncing, open Settings → Connect to a guide and paste your collaborator link. Installed apps have separate storage from the browser."]}</S>
+        <S>{["Wishlist", "Heart button in the nav. Save places you want to try — they show on the map as hollow markers. Tap 'Rate now' to promote a wishlist entry to a rated entry."]}</S>
+        <S>{["Map", "Shows all cuisines at once. Pizza = circle, Asian = square, Ethnic = triangle, Burgers = pentagon. Colour shows the score. Use the cuisine pills to hide/show types. Wishlist spots appear as hollow markers."]}</S>
+
+        <button onClick={onClose} style={{ width:"100%", background:"#C4622D", border:"none", color:"#F0EBE1", borderRadius:12, padding:"14px", fontSize:15, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600 }}>Got it</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [view, setView]             = useState("list");
@@ -731,6 +761,7 @@ export default function App() {
   const [syncId, setSyncId]         = useState(null);
   const [syncStatus, setSyncStatus] = useState("idle");
   const [showShare, setShowShare]   = useState(false);
+  const [showHelp, setShowHelp]     = useState(false);
   const [showFilter, setShowFilter] = useState(false);
   const [showSort, setShowSort]     = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -751,6 +782,7 @@ export default function App() {
     try { return new Set(JSON.parse(localStorage.getItem(DELETED_KEY) || "[]")); } catch { return new Set(); }
   });
   const [lookingUp, setLookingUp] = useState(false);
+  const [lookingUpWish, setLookingUpWish] = useState(false);
   const [addingVisitTo, setAddingVisitTo] = useState(null); // entry ID when logging a re-visit
   const fileRef       = useRef();
   const entriesRef    = useRef([]);
@@ -1090,6 +1122,27 @@ export default function App() {
     setLookingUp(false);
   }
 
+  async function handleLookupWishPlace() {
+    if (!wishForm.name.trim()) return;
+    setLookingUpWish(true);
+    let lat = wishForm.lat, lng = wishForm.lng;
+    if (!lat && wishForm.location?.trim()) {
+      const coords = await geocodeLocation(wishForm.location);
+      if (coords) { lat = coords.lat; lng = coords.lng; setWishForm(f => ({ ...f, lat, lng })); }
+    }
+    if (!lat) { setLookingUpWish(false); return; }
+    const result = await lookupOSMPlace(wishForm.name, lat, lng);
+    if (result) {
+      setWishForm(f => ({
+        ...f,
+        phone:          result.phone        || f.phone,
+        openingHours:   result.openingHours || f.openingHours,
+        reservationUrl: f.reservationUrl || result.website || "",
+      }));
+    }
+    setLookingUpWish(false);
+  }
+
   function toggleArr(arr, set, val) { set(arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]); }
 
   function handleFormStyleChange(newStyle) {
@@ -1208,10 +1261,12 @@ export default function App() {
                   <button onClick={() => setShowSort(true)} style={{ background:sortBy!=="score_desc"?"rgba(196,98,45,0.12)":"var(--surface)", border:`1px solid ${sortBy!=="score_desc"?"#C4622D":"var(--border)"}`, color:sortBy!=="score_desc"?"#C4622D":"var(--muted)", borderRadius:8, padding:"7px 9px", cursor:"pointer", display:"flex", alignItems:"center" }}>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4"/><path d="M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
                   </button>
-                  {/* Share (opens sheet with PDF export + sync) */}
+                  {/* Share */}
                   <button onClick={() => setShowShare(true)} style={{ background:"var(--surface)", border:"1px solid var(--border)", color:"var(--muted)", borderRadius:8, padding:"7px 9px", cursor:"pointer", display:"flex", alignItems:"center" }}>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
                   </button>
+                  {/* Help */}
+                  <button onClick={() => setShowHelp(true)} style={{ background:"var(--surface)", border:"1px solid var(--border)", color:"var(--muted)", borderRadius:8, padding:"7px 9px", cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontSize:13, fontWeight:600, lineHeight:1 }}>?</button>
                 </>
               )}
             </div>
@@ -1270,7 +1325,8 @@ export default function App() {
         {showShare    && <ShareModal syncId={syncId} onExportPdf={() => handlePrint(visibleEntries, activeCuisine)} onExportKml={() => exportKML(entries.filter(e => migrateCuisine(e.cuisine) === activeCuisine))} onClose={() => setShowShare(false)} />}
         {showFilter   && <FilterSheet cuisineStyles={cuisineConfig.styles} filterTiers={filterTiers} filterStyles={filterStyles} filterPrices={filterPrices} onToggleTier={v => toggleArr(filterTiers, setFilterTiers, v)} onToggleStyle={v => toggleArr(filterStyles, setFilterStyles, v)} onTogglePrice={v => toggleArr(filterPrices, setFilterPrices, v)} onClear={() => { setFilterTiers([]); setFilterStyles([]); setFilterPrices([]); }} onClose={() => setShowFilter(false)} />}
         {showSort     && <SortSheet sortBy={sortBy} onSort={setSortBy} criteria={activeCriteria} onClose={() => setShowSort(false)} />}
-        {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} onJoin={handleJoin} onClose={() => setShowSettings(false)} />}
+        {showSettings && <SettingsPanel theme={theme} onTheme={t => setTheme(t)} userInitials={userInitials} onInitials={handleInitials} onJoin={handleJoin} onClose={() => setShowSettings(false)} /> }
+        {showHelp && <HelpSheet onClose={() => setShowHelp(false)} />}
       </div>
     );
   }
@@ -1315,21 +1371,44 @@ export default function App() {
             <div style={{ fontSize:14, color:"var(--dim)", lineHeight:1.8 }}>Save places you want to try.<br/>Tap + to add your first entry.</div>
           </div>
         ) : wishItems.map(item => (
-          <div key={item.id} style={{ padding:"16px 24px", ...divBdr, display:"flex", gap:14, alignItems:"flex-start" }}>
-            <div style={{ position:"relative", flexShrink:0 }}>
-              <div style={{ width:44, height:44, borderRadius:8, background:"rgba(212,168,83,0.1)", border:"1px solid rgba(212,168,83,0.3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{cuisineConfig.icon}</div>
-              {item.addedBy && <div style={{ position:"absolute", bottom:-4, right:-4, width:18, height:18, borderRadius:"50%", background:"#D4A853", fontSize:7, fontWeight:700, color:"#0D0B09", display:"flex", alignItems:"center", justifyContent:"center", border:"1.5px solid var(--bg)" }}>{item.addedBy.slice(0,2)}</div>}
+          <div key={item.id} style={{ padding:"16px 24px", ...divBdr }}>
+            <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
+              <div style={{ position:"relative", flexShrink:0 }}>
+                <div style={{ width:44, height:44, borderRadius:8, background:"rgba(212,168,83,0.1)", border:"1px solid rgba(212,168,83,0.3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{cuisineConfig.icon}</div>
+                {item.addedBy && <div style={{ position:"absolute", bottom:-4, right:-4, width:18, height:18, borderRadius:"50%", background:"#D4A853", fontSize:7, fontWeight:700, color:"#0D0B09", display:"flex", alignItems:"center", justifyContent:"center", border:"1.5px solid var(--bg)" }}>{item.addedBy.slice(0,2)}</div>}
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:3 }}>
+                  <div style={{ fontFamily:"'Playfair Display', serif", fontSize:16, fontWeight:600, color:"var(--text)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.name}</div>
+                  {(() => { const o = isOpenNow(item.openingHours); return o === true ? <div title="Open now" style={{ width:7, height:7, borderRadius:"50%", background:"#5B8A5B", flexShrink:0 }} /> : o === false ? <div title="Closed now" style={{ width:7, height:7, borderRadius:"50%", background:"#8B4040", flexShrink:0 }} /> : null; })()}
+                </div>
+                {item.location && <div style={{ fontSize:12, color:"var(--dim)", marginBottom:2 }}>📍 {item.location}</div>}
+                {item.phone && <div style={{ fontSize:12, color:"var(--dim)", marginBottom:2 }}>📞 {item.phone}</div>}
+                {item.style && <div style={{ fontSize:12, color:"var(--muted)" }}>{item.style}</div>}
+                {item.notes && <div style={{ fontSize:12, color:"var(--muted)", fontStyle:"italic", marginTop:2 }}>"{item.notes}"</div>}
+                <div style={{ fontSize:10, color:"var(--dimmer)", marginTop:6 }}>Added {item.dateAdded}</div>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:6, flexShrink:0 }}>
+                <button onClick={() => rateNow(item)} style={{ background:"#C4622D", border:"none", color:"#F0EBE1", borderRadius:8, padding:"7px 10px", fontSize:11, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600, whiteSpace:"nowrap" }}>Rate now →</button>
+                <button onClick={() => deleteWish(item.id)} style={{ background:"transparent", border:"1px solid var(--border)", color:"var(--dim)", borderRadius:8, padding:"6px 10px", fontSize:11, cursor:"pointer", fontFamily:"'DM Sans', sans-serif" }}>Remove</button>
+              </div>
             </div>
-            <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontFamily:"'Playfair Display', serif", fontSize:16, fontWeight:600, color:"var(--text)", marginBottom:3 }}>{item.name}</div>
-              {item.location && <div style={{ fontSize:12, color:"var(--dim)", marginBottom:3 }}>📍 {item.location}</div>}
-              {item.style && <div style={{ fontSize:12, color:"var(--muted)" }}>{item.style}</div>}
-              {item.notes && <div style={{ fontSize:12, color:"var(--muted)", fontStyle:"italic", marginTop:2 }}>"{item.notes}"</div>}
-              <div style={{ fontSize:10, color:"var(--dimmer)", marginTop:6 }}>Added {item.dateAdded}</div>
-            </div>
-            <div style={{ display:"flex", flexDirection:"column", gap:6, flexShrink:0 }}>
-              <button onClick={() => rateNow(item)} style={{ background:"#C4622D", border:"none", color:"#F0EBE1", borderRadius:8, padding:"7px 10px", fontSize:11, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600, whiteSpace:"nowrap" }}>Rate now →</button>
-              <button onClick={() => deleteWish(item.id)} style={{ background:"transparent", border:"1px solid var(--border)", color:"var(--dim)", borderRadius:8, padding:"6px 10px", fontSize:11, cursor:"pointer", fontFamily:"'DM Sans', sans-serif" }}>Remove</button>
+            {/* Reservation URL */}
+            {item.reservationUrl && (
+              <a href={item.reservationUrl.startsWith("http") ? item.reservationUrl : "https://"+item.reservationUrl} target="_blank" rel="noopener noreferrer" style={{ display:"flex", alignItems:"center", gap:8, marginTop:10, background:"rgba(196,98,45,0.07)", border:"1px solid rgba(196,98,45,0.2)", borderRadius:8, padding:"8px 12px", textDecoration:"none" }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#C4622D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                <span style={{ fontSize:12, color:"#C4622D", fontWeight:600 }}>{isBookingUrl(item.reservationUrl) ? "Book a table" : "Visit website / Book a table"}</span>
+              </a>
+            )}
+            {/* Find on */}
+            <div style={{ display:"flex", gap:6, marginTop:8, flexWrap:"wrap" }}>
+              {[
+                { label:"TripAdvisor", color:"#00AA6C", url:`https://www.tripadvisor.com/Search?q=${encodeURIComponent((item.name||"")+" "+(item.location||""))}` },
+                { label:"TheFork",     color:"#00B67A", url:`https://www.thefork.com/search#cityId=0&query=${encodeURIComponent((item.name||"")+" "+(item.location||""))}` },
+                { label:"Maps",        color:"#4285F4", url:`https://www.google.com/maps/search/${encodeURIComponent((item.name||"")+" "+(item.location||""))}` },
+              ].map(s => (
+                <a key={s.label} href={s.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration:"none", display:"inline-flex", alignItems:"center", gap:4, background:"var(--surface)", border:"1px solid var(--border)", borderRadius:6, padding:"4px 9px", fontSize:11, color:s.color, fontWeight:500 }}>{s.label} ↗</a>
+              ))}
             </div>
           </div>
         ))}
@@ -1524,7 +1603,7 @@ export default function App() {
           {selected.reservationUrl && (
             <a href={selected.reservationUrl.startsWith("http") ? selected.reservationUrl : "https://"+selected.reservationUrl} target="_blank" rel="noopener noreferrer" style={{ display:"flex", alignItems:"center", gap:10, marginTop:14, background:"rgba(196,98,45,0.08)", border:"1px solid rgba(196,98,45,0.25)", borderRadius:10, padding:"11px 16px", textDecoration:"none" }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4622D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              <span style={{ fontSize:13, color:"#C4622D", fontWeight:600 }}>{isBookingUrl(selected.reservationUrl) ? "Book a table" : "Visit website"}</span>
+              <span style={{ fontSize:13, color:"#C4622D", fontWeight:600 }}>{isBookingUrl(selected.reservationUrl) ? "Book a table" : "Visit website / Book a table"}</span>
               <span style={{ marginLeft:"auto", fontSize:11, color:"var(--dimmer)" }}>{(selected.reservationUrl.replace(/^https?:\/\/(www\.)?/,"").split("/")[0])}</span>
             </a>
           )}
@@ -1536,7 +1615,7 @@ export default function App() {
               <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                 {[
                   { label:"TripAdvisor", color:"#00AA6C", url:`https://www.tripadvisor.com/Search?q=${encodeURIComponent((selected.name||"")+" "+(selected.location||""))}` },
-                  { label:"TheFork",     color:"#00B67A", url:`https://www.thefork.it/ricerca?q=${encodeURIComponent(selected.name||"")}${selected.location?`&cityName=${encodeURIComponent(selected.location)}`:""}` },
+                  { label:"TheFork",     color:"#00B67A", url:`https://www.thefork.com/search#cityId=0&query=${encodeURIComponent((selected.name||"")+" "+(selected.location||""))}` },
                   { label:"Google Maps", color:"#4285F4", url:`https://www.google.com/maps/search/${encodeURIComponent((selected.name||"")+" "+(selected.location||""))}` },
                 ].map(s => (
                   <a key={s.label} href={s.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration:"none", display:"inline-flex", alignItems:"center", gap:5, background:"var(--surface)", border:"1px solid var(--border)", borderRadius:8, padding:"6px 12px", fontSize:12, color:`${s.color}`, fontWeight:500 }}>
@@ -1827,13 +1906,36 @@ export default function App() {
           <div style={secLbl}>Cuisine</div>
           <div style={{ marginBottom:20 }}><CuisineSwitcher active={migrateCuisine(wishForm.cuisine)} onChange={c => setWishForm(f => ({ ...f, cuisine:c }))} /></div>
           <div style={secLbl}>Place</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
             <input className="pg-input" placeholder="Restaurant name *" value={wishForm.name} onChange={e => setWishForm(f => ({ ...f, name:e.target.value }))} />
             <div style={{ position:"relative" }}>
               <input className="pg-input" placeholder="Location (optional — pins on map)" value={wishForm.location} onChange={e => setWishForm(f => ({ ...f, location:e.target.value, lat:null, lng:null }))} />
               <div style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:11, color:"var(--dimmer)" }}>📍</div>
             </div>
             <input className="pg-input" placeholder="Your initials (badge on shared guides)" value={wishForm.addedBy||""} onChange={e => setWishForm(f => ({ ...f, addedBy:e.target.value.toUpperCase().slice(0,3) }))} style={{ letterSpacing:2 }} />
+          </div>
+          {/* Phone + auto-fill */}
+          <div style={{ display:"flex", gap:10, marginBottom:12 }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:10, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:6 }}>Phone</div>
+              <input className="pg-input" placeholder="+31 20 123 4567" value={wishForm.phone||""} onChange={e => setWishForm(f => ({ ...f, phone:e.target.value }))} />
+            </div>
+            {wishForm.name.trim() && (
+              <div style={{ display:"flex", alignItems:"flex-end" }}>
+                <button onClick={handleLookupWishPlace} disabled={lookingUpWish} style={{ background:lookingUpWish?"var(--surface)":"rgba(91,138,91,0.12)", border:"1px solid rgba(91,138,91,0.3)", color:"#5B8A5B", borderRadius:10, padding:"10px 12px", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600, whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:5 }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  {lookingUpWish ? "Looking up…" : "Auto-fill"}
+                </button>
+              </div>
+            )}
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:10, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:6 }}>Opening Hours</div>
+            <input className="pg-input" placeholder="Mo-Fr 12:00-15:00,19:00-23:00" value={wishForm.openingHours||""} onChange={e => setWishForm(f => ({ ...f, openingHours:e.target.value }))} style={{ fontSize:12 }} />
+          </div>
+          <div style={{ marginBottom:20 }}>
+            <div style={{ fontSize:10, letterSpacing:2, color:"var(--dimmer)", textTransform:"uppercase", marginBottom:6 }}>Website / Reservation URL</div>
+            <input className="pg-input" placeholder="https://thefork.com/…" value={wishForm.reservationUrl||""} onChange={e => setWishForm(f => ({ ...f, reservationUrl:e.target.value }))} style={{ fontSize:12 }} />
           </div>
           <div style={secLbl}>Notes</div>
           <textarea className="pg-textarea" placeholder="Why you want to try this place…" value={wishForm.notes} onChange={e => setWishForm(f => ({ ...f, notes:e.target.value }))} />
