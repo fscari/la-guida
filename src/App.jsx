@@ -666,7 +666,7 @@ function SettingsPanel({ theme, onTheme, userInitials, onInitials, onJoin, onClo
           <div style={{ fontSize:10, letterSpacing:2, color:"#C4622D", textTransform:"uppercase", fontWeight:600, marginBottom:10 }}>Your Initials</div>
           <div style={{ fontSize:12, color:"var(--dim)", marginBottom:10, lineHeight:1.6 }}>Shows on entries as a badge in shared guides.</div>
           <div style={{ display:"flex", gap:10 }}>
-            <input className="pg-input" placeholder="e.g. GR" value={init} maxLength={3} onChange={e => setInit(e.target.value.toUpperCase())} style={{ flex:1, textTransform:"uppercase", letterSpacing:2, fontWeight:600 }} />
+            <input className="pg-input" placeholder="e.g. GR" value={init} maxLength={4} onChange={e => setInit(e.target.value.toUpperCase())} style={{ flex:1, textTransform:"uppercase", letterSpacing:2, fontWeight:600 }} />
             <button onClick={() => { onInitials(init); onClose(); }} style={{ background:"#C4622D", border:"none", color:"#F0EBE1", borderRadius:10, padding:"0 18px", fontSize:14, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600 }}>Save</button>
           </div>
         </div>
@@ -1297,7 +1297,7 @@ export default function App() {
                 {entry.photo
                   ? <img src={entry.photo} alt="" style={{ width:44, height:44, borderRadius:8, objectFit:"cover", display:"block" }} />
                   : <div style={{ width:44, height:44, borderRadius:8, background:"var(--surface)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{cuisineConfig.icon}</div>}
-                {entry.addedBy && <div style={{ position:"absolute", bottom:-4, right:-4, width:18, height:18, borderRadius:"50%", background:"#C4622D", fontSize:7, fontWeight:700, color:"#F0EBE1", display:"flex", alignItems:"center", justifyContent:"center", border:"1.5px solid var(--bg)" }}>{entry.addedBy.slice(0,2)}</div>}
+                {entry.addedBy && <div style={{ position:"absolute", bottom:-4, right:-4, width:22, height:18, borderRadius:9, background:"#C4622D", fontSize:7, fontWeight:700, color:"#F0EBE1", display:"flex", alignItems:"center", justifyContent:"center", border:"1.5px solid var(--bg)" }}>{entry.addedBy.slice(0,4)}</div>}
               </div>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:3 }}>
@@ -1375,7 +1375,7 @@ export default function App() {
             <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
               <div style={{ position:"relative", flexShrink:0 }}>
                 <div style={{ width:44, height:44, borderRadius:8, background:"rgba(212,168,83,0.1)", border:"1px solid rgba(212,168,83,0.3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{cuisineConfig.icon}</div>
-                {item.addedBy && <div style={{ position:"absolute", bottom:-4, right:-4, width:18, height:18, borderRadius:"50%", background:"#D4A853", fontSize:7, fontWeight:700, color:"#0D0B09", display:"flex", alignItems:"center", justifyContent:"center", border:"1.5px solid var(--bg)" }}>{item.addedBy.slice(0,2)}</div>}
+                {item.addedBy && <div style={{ position:"absolute", bottom:-4, right:-4, width:22, height:18, borderRadius:9, background:"#D4A853", fontSize:7, fontWeight:700, color:"#0D0B09", display:"flex", alignItems:"center", justifyContent:"center", border:"1.5px solid var(--bg)" }}>{item.addedBy.slice(0,4)}</div>}
               </div>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:3 }}>
@@ -1471,7 +1471,13 @@ export default function App() {
                         </div>
                         {entry.location && <div style={{ fontSize:11, color:"var(--muted)", marginBottom:8 }}>📍 {entry.location} · {entry.priceRange}</div>}
                         {entry.addedBy && <div style={{ fontSize:10, color:"#C4622D", marginBottom:8 }}>By {entry.addedBy}</div>}
-                        <button onClick={() => openDetail(entry.id)} style={{ width:"100%", background:"#C4622D", border:"none", color:"#F0EBE1", borderRadius:7, padding:"7px", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600 }}>View details →</button>
+                        <div style={{ display:"flex", gap:6 }}>
+                          <button onClick={() => openDetail(entry.id)} style={{ flex:1, background:"#C4622D", border:"none", color:"#F0EBE1", borderRadius:7, padding:"7px", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600 }}>View details →</button>
+                          <a href={`https://www.google.com/maps/dir/?api=1&destination=${entry.lat},${entry.lng}&destination_place_id=${encodeURIComponent(entry.name)}`} target="_blank" rel="noopener noreferrer" style={{ flex:1, background:"#4285F4", border:"none", color:"#fff", borderRadius:7, padding:"7px", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600, textDecoration:"none", display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}>
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                            Let's go
+                          </a>
+                        </div>
                       </div>
                     </Popup>
                   </Marker>
@@ -1492,7 +1498,13 @@ export default function App() {
                         <div style={{ fontFamily:"'Playfair Display', serif", fontSize:15, fontWeight:700, marginBottom:6, color:"var(--text)" }}>{item.name}</div>
                         {item.addedBy && <div style={{ fontSize:10, color:"#D4A853", marginBottom:6 }}>Saved by {item.addedBy}</div>}
                         {item.location && <div style={{ fontSize:11, color:"var(--muted)", marginBottom:8 }}>📍 {item.location}</div>}
-                        <button onClick={() => rateNow(item)} style={{ width:"100%", background:"#D4A853", border:"none", color:"#0D0B09", borderRadius:7, padding:"7px", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:700 }}>Rate now →</button>
+                        <div style={{ display:"flex", gap:6 }}>
+                          <button onClick={() => rateNow(item)} style={{ flex:1, background:"#D4A853", border:"none", color:"#0D0B09", borderRadius:7, padding:"7px", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:700 }}>Rate now →</button>
+                          <a href={`https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}`} target="_blank" rel="noopener noreferrer" style={{ flex:1, background:"#4285F4", border:"none", color:"#fff", borderRadius:7, padding:"7px", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans', sans-serif", fontWeight:600, textDecoration:"none", display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}>
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                            Let's go
+                          </a>
+                        </div>
                       </div>
                     </Popup>
                   </Marker>
@@ -1808,7 +1820,7 @@ export default function App() {
               </div>
               <input className="pg-input" type="date" value={form.dateVisited} onChange={e => setForm(f => ({ ...f, dateVisited:e.target.value }))} style={{ flex:1 }} />
             </div>
-            <input className="pg-input" placeholder="Your initials (badge on shared guides)" value={form.addedBy} onChange={e => setForm(f => ({ ...f, addedBy:e.target.value.toUpperCase().slice(0,3) }))} style={{ letterSpacing:2 }} />
+            <input className="pg-input" placeholder="Your initials (badge on shared guides)" value={form.addedBy} onChange={e => setForm(f => ({ ...f, addedBy:e.target.value.toUpperCase().slice(0,4) }))} style={{ letterSpacing:2 }} />
           </div>
 
           {/* Phone + Hours */}
@@ -1912,7 +1924,7 @@ export default function App() {
               <input className="pg-input" placeholder="Location (optional — pins on map)" value={wishForm.location} onChange={e => setWishForm(f => ({ ...f, location:e.target.value, lat:null, lng:null }))} />
               <div style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:11, color:"var(--dimmer)" }}>📍</div>
             </div>
-            <input className="pg-input" placeholder="Your initials (badge on shared guides)" value={wishForm.addedBy||""} onChange={e => setWishForm(f => ({ ...f, addedBy:e.target.value.toUpperCase().slice(0,3) }))} style={{ letterSpacing:2 }} />
+            <input className="pg-input" placeholder="Your initials (badge on shared guides)" value={wishForm.addedBy||""} onChange={e => setWishForm(f => ({ ...f, addedBy:e.target.value.toUpperCase().slice(0,4) }))} style={{ letterSpacing:2 }} />
           </div>
           {/* Phone + auto-fill */}
           <div style={{ display:"flex", gap:10, marginBottom:12 }}>
