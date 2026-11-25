@@ -192,6 +192,38 @@ function mergeRatings(a, b) {
   return result;
 }
 
+// Merge local and cloud data: union by id, tombstones win, newest updatedAt wins
+function mergeEntryLists(local, cloudList, deleted) {
+  const localById = Object.fromEntries(local.map(e => [e.id, { ...e, cuisine: migrateCuisine(e.cuisine) }]));
+  const cloudById = Object.fromEntries(cloudList.map(e => [e.id, { ...e, cuisine: migrateCuisine(e.cuisine) }]));
+  const out = [];
+  for (const id of new Set([...Object.keys(localById), ...Object.keys(cloudById)])) {
+    if (deleted.has(id)) continue;
+    const l = localById[id], c = cloudById[id];
+    if (!c) { out.push(l); continue; }
+    if (!l) { out.push(c); continue; }
+    const mergedR = mergeRatings(initRatings(l), initRatings(c));
+    const base    = (c.updatedAt || 0) > (l.updatedAt || 0) ? { ...c, photo: l.photo ?? c.photo } : l;
+    out.push({ ...base, ratings: mergedR, weightedScore: calcAvgScore(mergedR) });
+  }
+  return out.sort((a, b) => b.weightedScore - a.weightedScore);
+}
+
+function mergeWishLists(local, cloudList, deleted) {
+  const byId = {};
+  for (const w of cloudList) byId[w.id] = { ...w, cuisine: migrateCuisine(w.cuisine) };
+  for (const w of local) {
+    const c = byId[w.id];
+    if (!c || (w.updatedAt || 0) >= (c.updatedAt || 0)) byId[w.id] = { ...w, cuisine: migrateCuisine(w.cuisine), photo: w.photo ?? c?.photo };
+  }
+  return Object.values(byId).filter(w => !deleted.has(w.id));
+}
+
+// Comparable snapshot (photos are never synced, so ignore them)
+function syncSig(list) {
+  return JSON.stringify([...list].map(({ photo, ...r }) => r).sort((a, b) => String(a.id).localeCompare(String(b.id))));
+}
+
 // Is this URL a booking platform?
 function isBookingUrl(url = "") {
   return /thefork|opentable|resy|sevenrooms|quandoo|fork\.it|restabook|tablecheck/i.test(url);
@@ -879,71 +911,8 @@ export default function App() {
     const cloud = await pullFromCloud(id);
     if (!cloud?.entries) { setSyncStatus("ok"); return; }
 
-    // Merge tombstones first — union of local + cloud deleted IDs
-    const localDeleted = deletedIdsRef.current;
-    const cloudDeleted = new Set(cloud.deletedIds || []);
-    const allDeleted   = new Set([...localDeleted, ...cloudDeleted]);
-    if (allDeleted.size > localDeleted.size) {
-      setDeletedIds(allDeleted);
-      localStorage.setItem(DELETED_KEY, JSON.stringify([...allDeleted]));
-      deletedIdsRef.current = allDeleted;
-    }
-
-    // Merge entries, skipping any that are tombstoned
-    const local      = entriesRef.current;
-    const localById  = Object.fromEntries(local.map(e => [e.id, e]));
-    const cloudById  = Object.fromEntries(
-      cloud.entries
-        .filter(e => !allDeleted.has(e.id))
-        .map(e => [e.id, { ...e, cuisine: migrateCuisine(e.cuisine) }])
-    );
-    const allIds = new Set([...Object.keys(localById), ...Object.keys(cloudById)]);
-    let changed  = false;
-    const merged = [];
-
-    for (const eid of allIds) {
-      if (allDeleted.has(eid)) { changed = true; continue; }
-      const l = localById[eid];
-      const c = cloudById[eid];
-      if (!c) { merged.push(l); }
-      else if (!l) { merged.push(c); changed = true; }
-      else {
-        // Merge ratings maps first — union of all raters, per-rater last-write wins
-        const mergedR = mergeRatings(initRatings(l), initRatings(c));
-        const avgWs   = calcAvgScore(mergedR);
-        // Base metadata from whichever device was updated more recently
-        const base    = (c.updatedAt || 0) > (l.updatedAt || 0) ? { ...c, photo: l.photo ?? c.photo } : l;
-        const result  = { ...base, ratings: mergedR, weightedScore: avgWs };
-        if (JSON.stringify(result) !== JSON.stringify(l)) changed = true;
-        merged.push(result);
-      }
-    }
-
-    const sorted = merged.sort((a, b) => b.weightedScore - a.weightedScore);
-
-    if (changed) {
-      setEntries(sorted);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
-      if (!viewOnlyRef.current && syncIdRef.current) {
-        pushToCloud(syncIdRef.current, sorted, wishlistRef.current, [...allDeleted]);
-      }
-    }
-
-    // Merge wishlist (collaborators only — view-only users never see the owner's wishlist)
-    if (!viewOnlyRef.current) {
-      const wl      = wishlistRef.current;
-      const wlIds   = new Set(wl.map(w => w.id));
-      const newWish = (cloud.wishlist || [])
-        .filter(w => !wlIds.has(w.id) && !allDeleted.has(w.id))
-        .map(w => ({ ...w, cuisine: migrateCuisine(w.cuisine) }));
-      if (newWish.length) {
-        const mergedWish = [...wl, ...newWish];
-        setWishlist(mergedWish);
-        localStorage.setItem(WISHLIST_KEY, JSON.stringify(mergedWish));
-      }
-    }
-
-    setSyncStatus("ok");
+    const ok = await applyCloudMerge(cloud, entriesRef.current, wishlistRef.current, true);
+    setSyncStatus(ok ? "ok" : "error");
   }
 
   useEffect(() => {
@@ -953,23 +922,64 @@ export default function App() {
   }, [pollId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Persistence ────────────────────────────────────────────────────────────
+  // Merge cloud data into local state; push back whatever the cloud is missing.
+  // Returns a promise resolving to true when local and cloud end up identical.
+  async function applyCloudMerge(cloud, localEntries, localWish, fromPoll = false) {
+    const localDeleted = deletedIdsRef.current;
+    const allDeleted   = new Set([...localDeleted, ...(cloud.deletedIds || [])]);
+    if (allDeleted.size > localDeleted.size) {
+      setDeletedIds(allDeleted);
+      deletedIdsRef.current = allDeleted;
+      localStorage.setItem(DELETED_KEY, JSON.stringify([...allDeleted]));
+    }
+
+    const isViewer    = viewOnlyRef.current;
+    const mergedE     = mergeEntryLists(localEntries, cloud.entries || [], allDeleted);
+    const mergedW     = isViewer ? localWish : mergeWishLists(localWish, cloud.wishlist || [], allDeleted);
+
+    if (syncSig(mergedE) !== syncSig(localEntries)) {
+      setEntries(mergedE); entriesRef.current = mergedE;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(mergedE));
+    }
+    if (!isViewer && syncSig(mergedW) !== syncSig(localWish)) {
+      setWishlist(mergedW); wishlistRef.current = mergedW;
+      localStorage.setItem(WISHLIST_KEY, JSON.stringify(mergedW));
+    }
+
+    const cloudBehind = syncSig(mergedE) !== syncSig(cloud.entries || [])
+      || (!isViewer && syncSig(mergedW) !== syncSig(cloud.wishlist || []))
+      || allDeleted.size !== new Set(cloud.deletedIds || []).size;
+
+    if (cloudBehind && !isViewer && syncIdRef.current) {
+      const ok = await pushToCloud(syncIdRef.current, mergedE, mergedW, [...allDeleted]);
+      setSyncStatus(ok ? "ok" : "error");
+      return ok;
+    }
+    if (!fromPoll) setSyncStatus("ok");
+    return true;
+  }
+
+  // Save locally right away, then pull, merge and push so no device overwrites another
+  async function pushMerged(localEntries, localWish) {
+    if (!syncIdRef.current || viewOnlyRef.current) return;
+    setSyncStatus("syncing");
+    const cloud = await pullFromCloud(syncIdRef.current);
+    if (!cloud || !cloud.entries) { setSyncStatus("error"); return; }
+    await applyCloudMerge(cloud, localEntries, localWish);
+  }
+
   function persist(newEntries, activeSyncId, newWishlist) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newEntries));
-    const wl  = newWishlist !== undefined ? newWishlist : wishlist;
-    const del = [...deletedIdsRef.current];
-    if (activeSyncId && !viewOnly) {
-      setSyncStatus("syncing");
-      pushToCloud(activeSyncId, newEntries, wl, del).then(ok => setSyncStatus(ok ? "ok" : "error"));
-    }
+    entriesRef.current = newEntries;
+    const wl = newWishlist !== undefined ? newWishlist : wishlistRef.current;
+    if (activeSyncId && !viewOnly) pushMerged(newEntries, wl);
   }
 
   function persistWish(newWishlist) {
     setWishlist(newWishlist);
+    wishlistRef.current = newWishlist;
     localStorage.setItem(WISHLIST_KEY, JSON.stringify(newWishlist));
-    if (syncId && !viewOnly) {
-      setSyncStatus("syncing");
-      pushToCloud(syncId, entries, newWishlist, [...deletedIdsRef.current]).then(ok => setSyncStatus(ok ? "ok" : "error"));
-    }
+    if (syncId && !viewOnly) pushMerged(entriesRef.current, newWishlist);
   }
 
   // ── Entry CRUD ─────────────────────────────────────────────────────────────
@@ -1021,7 +1031,7 @@ export default function App() {
     setSaving(true);
     let lat = wishForm.lat, lng = wishForm.lng;
     if (wishForm.location?.trim() && !lat) { const c = await geocodeLocation(wishForm.location); if (c) { lat = c.lat; lng = c.lng; } }
-    const item = { ...wishForm, id: editingWishId || String(Date.now()), lat, lng, addedBy: wishForm.addedBy || userInitials };
+    const item = { ...wishForm, id: editingWishId || String(Date.now()), lat, lng, addedBy: wishForm.addedBy || userInitials, updatedAt: Date.now() };
     const next = editingWishId ? wishlist.map(w => w.id === editingWishId ? item : w) : [...wishlist, item];
     persistWish(next); setSaving(false); setView("wishlist"); setEditingWishId(null); setWishForm(freshWishForm(activeCuisine, userInitials));
   }
@@ -1055,6 +1065,10 @@ export default function App() {
     criteria.forEach(c => { scores[c.key] = 7; });
     setForm({ name:item.name, location:item.location||"", style:style0, dateVisited:new Date().toISOString().split("T")[0], dish:"", priceRange:"€€", scores, notes:item.notes||"", wouldReturn:"Yes", cuisine, lat:item.lat||null, lng:item.lng||null, photo:null, addedBy:userInitials });
     setEditingId(null); setView("add");
+    const newDel = new Set([...deletedIdsRef.current, item.id]);
+    setDeletedIds(newDel);
+    deletedIdsRef.current = newDel;
+    localStorage.setItem(DELETED_KEY, JSON.stringify([...newDel]));
     persistWish(wishlist.filter(w => w.id !== item.id));
   }
 
