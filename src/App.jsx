@@ -1444,7 +1444,9 @@ export default function App() {
     const wishLocated = wishlist.filter(w => w.lat && w.lng && mapCuisineFilter.includes(migrateCuisine(w.cuisine)));
     const totalShown  = entries.filter(e => mapCuisineFilter.includes(migrateCuisine(e.cuisine))).length;
     const center      = allLocated.length > 0 ? [allLocated[0].lat, allLocated[0].lng] : [41.9028, 12.4964];
-    const tileUrl     = theme === "light" ? "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" : "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+    const esriTheme   = theme === "light" ? "Light" : "Dark";
+    const tileUrl     = `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_${esriTheme}_Gray_Base/MapServer/tile/{z}/{y}/{x}`;
+    const labelUrl    = `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_${esriTheme}_Gray_Reference/MapServer/tile/{z}/{y}/{x}`;
     return (
       <div style={{ ...app, height:"100dvh", display:"flex", flexDirection:"column" }} className="pg-fade-in">
         <div style={{ padding:"20px 24px 12px", ...divBdr, background:"var(--bg)", zIndex:10, flexShrink:0 }}>
@@ -1463,7 +1465,8 @@ export default function App() {
             </div>
           ) : (
             <MapContainer center={center} zoom={13} style={{ height:"100%", width:"100%" }} zoomControl={false}>
-              <TileLayer url={tileUrl} attribution="© OpenStreetMap © CARTO" subdomains="abcd" maxZoom={19} />
+              <TileLayer key={tileUrl} url={tileUrl} attribution="Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap contributors" maxNativeZoom={16} maxZoom={19} />
+              <TileLayer key={labelUrl} url={labelUrl} maxNativeZoom={16} maxZoom={19} />
               {mapFocus && <MapController center={mapFocus} />}
 
               {allLocated.map(entry => {
