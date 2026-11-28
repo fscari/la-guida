@@ -824,6 +824,19 @@ export default function App() {
     const urlSyncId   = params.get("sync");
     const localSyncId = localStorage.getItem(SYNC_ID_KEY);
 
+    // Prefill from the "Add to La Guida" shortcut (Apple Maps / Google Maps share):
+    // ?sync=…&add=wishlist&name=…&location=…&lat=…&lng=…&cuisine=…&notes=…
+    // Only opens the Wishlist form; nothing is saved until the user taps Save.
+    const addReq = params.get("add") === "wishlist" ? {
+      name:     params.get("name") || "",
+      location: params.get("location") || "",
+      lat:      parseFloat(params.get("lat")),
+      lng:      parseFloat(params.get("lng")),
+      cuisine:  params.get("cuisine") || "",
+      notes:    params.get("notes") || "",
+    } : null;
+    if (addReq) window.history.replaceState({}, "", window.location.pathname + (urlSyncId ? `?sync=${urlSyncId}` : ""));
+
     if (localStorage.getItem(THEME_KEY))   setTheme(localStorage.getItem(THEME_KEY));
     if (localStorage.getItem(INITIALS_KEY)) setUserInitials(localStorage.getItem(INITIALS_KEY));
     const savedCuisine = localStorage.getItem(CUISINE_KEY);
@@ -890,7 +903,22 @@ export default function App() {
       } catch {}
       setSyncStatus("ok");
     }
-    bootstrap();
+    bootstrap().then(() => {
+      if (!addReq || !addReq.name.trim() || viewOnlyRef.current) return;
+      const cuisine = CUISINE_CONFIGS[addReq.cuisine] ? addReq.cuisine
+        : (savedCuisine && CUISINE_CONFIGS[savedCuisine] ? savedCuisine : "pizza");
+      const base = freshWishForm(cuisine, localStorage.getItem(INITIALS_KEY) || "");
+      setWishForm({
+        ...base,
+        name:     addReq.name.trim(),
+        location: addReq.location,
+        notes:    addReq.notes,
+        lat:      Number.isFinite(addReq.lat) ? addReq.lat : null,
+        lng:      Number.isFinite(addReq.lng) ? addReq.lng : null,
+      });
+      setEditingWishId(null);
+      setView("wishlist-add");
+    });
   }, []);
 
   useEffect(() => { document.documentElement.setAttribute("data-theme", theme); localStorage.setItem(THEME_KEY, theme); }, [theme]);
